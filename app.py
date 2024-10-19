@@ -199,6 +199,7 @@ with ui.sidebar(
                             df,
                             selection_mode="rows",
                             filters=True,
+                            editable=True,
                             height="40vh",
                             width="100%"
                         )
@@ -455,7 +456,7 @@ def get_map_from_emdb():
             csym = int(row['csym'][1:]) if 'csym' in row and not pd.isna(row['csym']) else 1
             try:
                 data, apix = emdb(emdb_id)
-                maps_tmp.append((data, apix, twist, rise, csym, f"{emdb_id}"))
+                maps_tmp.append((data, apix, float(twist), float(rise), csym, f"{emdb_id}"))
             except Exception as e:
                 print(f"Failed to download map for {emdb_id}: {e}")
                 m = ui.modal(
