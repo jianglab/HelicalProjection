@@ -177,11 +177,23 @@ with ui.sidebar(
                 
                 with ui.panel_conditional("input.input_mode_maps === 'amyloid_atlas' || input.input_mode_maps === 'EMDB-helical' || input.input_mode_maps === 'EMDB'"):
                     @render.data_frame
-                    @reactive.event(emdb_df, input.show_pdb)
+                    @reactive.event(emdb_df, input.show_pdb, input.show_twist_star)
                     def display_emdb_dataframe():
                         df = emdb_df()
                         if not input.show_pdb():
                             cols = [col for col in df.columns if col != "pdb"]
+                            df = df[cols]
+                        if input.show_twist_star and "twist" in df.columns and "rise" in df.columns:
+                            rise = df["rise"].astype(float).abs()
+                            twist_star = df["twist"].astype(float).abs()
+                            mask = (rise * 2 < 5) & (4.5 < rise * 2) & ((360 - twist_star * 2) < 90)
+                            mask |= (rise < 5) & (4.5 < rise) & ((360 - twist_star * 2) < 90)
+                            twist_star = twist_star.copy()
+                            twist_star[mask] = 360 - twist_star[mask] * 2
+                            cols = df.columns.tolist()
+                            twist_index = cols.index('twist')
+                            cols.insert(twist_index, 'twist*')
+                            df['twist*'] = twist_star                            
                             df = df[cols]
                         return render.DataGrid(
                             df,
@@ -203,25 +215,10 @@ with ui.sidebar(
 
         with ui.nav_panel("Parameters"):
             with ui.layout_columns(
-                col_widths=[6], style="align-items: flex-end;"
-            ):
-                ui.input_checkbox_group(
-                    "map_projection_xyz_choices",
-                    "Show projections along:",
-                    choices=['x', 'y', 'z'],
-                    selected=['x', 'y', 'z'],
-                    inline=True
-                )
-
-            with ui.layout_columns(
-                col_widths=[6, 6, 6, 6], style="align-items: flex-end;"
+                col_widths=6, style="align-items: flex-end;"
             ):
                 ui.input_checkbox(
                     "ignore_blank", "Ignore blank input images", value=True
-                )
-
-                ui.input_checkbox(
-                    "show_pdb", "Show PDB ids in EMDB table", value=False
                 )
 
                 ui.input_checkbox(
@@ -230,6 +227,26 @@ with ui.sidebar(
 
                 ui.input_checkbox(
                     "match_sf", "Apply matched-filter", value=False
+                )
+
+                ui.input_checkbox(
+                    "show_pdb", "Show PDB ids in EMDB table", value=False
+                )
+
+                with ui.tooltip(id="show_twist_star_tooltip"):
+                    ui.input_checkbox("show_twist_star", "Show twist* in EMDB table", value=True)
+                    
+                    "When checked, displays an additional 'twist*' column in the EMDB table. This column shows the twist angle adjusted for helical symmetry, where twist* = 360-abs(twist)*2 when 360-abs(twist)*2 < 90° and 4.5Å < rise*2 < 5Å"
+
+            with ui.layout_columns(
+                col_widths=6, style="align-items: flex-end;"
+            ):
+                ui.input_checkbox_group(
+                    "map_projection_xyz_choices",
+                    "Show projections along:",
+                    choices=['x', 'y', 'z'],
+                    selected=['x', 'y', 'z'],
+                    inline=True
                 )
 
             with ui.layout_columns(
@@ -428,23 +445,26 @@ def get_map_from_emdb():
     req(len(emdb_df_selected) > 0)
     emdb = helicon.dataset.EMDB()
     maps_tmp = []
-    for _, row in emdb_df_selected.iterrows():
-        emdb_id = row['emdb_id']
-        twist = row['twist'] if 'twist' in row and not pd.isna(row['twist']) else 0
-        rise = row['rise'] if 'rise' in row and not pd.isna(row['rise']) else 0
-        csym = int(row['csym'][1:]) if 'csym' in row and not pd.isna(row['csym']) else 1
-        try:
-            data, apix = emdb(emdb_id)
-            maps_tmp.append((data, apix, twist, rise, csym, f"{emdb_id}"))
-        except Exception as e:
-            print(f"Failed to download map for {emdb_id}: {e}")
-            m = ui.modal(
-                f"Failed to download 3D map for {emdb_id}",
-                title="EMDB Download Error",
-                easy_close=True,
-                footer=None,
-            )
-            ui.modal_show(m)
+    with ui.Progress(min=0, max=len(emdb_df_selected)) as p:
+        p.set(message="Obtaining maps", detail="This may take a while ...")
+        for ri, row in emdb_df_selected.iterrows():
+            emdb_id = row['emdb_id']
+            p.set(ri+1, message=f"Downloading {emdb_id}")
+            twist = row['twist'] if 'twist' in row and not pd.isna(row['twist']) else 0
+            rise = row['rise'] if 'rise' in row and not pd.isna(row['rise']) else 0
+            csym = int(row['csym'][1:]) if 'csym' in row and not pd.isna(row['csym']) else 1
+            try:
+                data, apix = emdb(emdb_id)
+                maps_tmp.append((data, apix, twist, rise, csym, f"{emdb_id}"))
+            except Exception as e:
+                print(f"Failed to download map for {emdb_id}: {e}")
+                m = ui.modal(
+                    f"Failed to download 3D map for {emdb_id}",
+                    title="EMDB Download Error",
+                    easy_close=True,
+                    footer=None,
+                )
+                ui.modal_show(m)
     map_side_projections.set([])
     maps.set(maps_tmp)
     
@@ -483,71 +503,75 @@ def get_map_side_projections():
     images = []
     image_labels = []
 
-    for mi, m in enumerate(maps()):
-        data, apix, twist, rise, csym, filename = m
-        if abs(twist) < 1e-3:
-            m = ui.modal(
-                f"WARNING: {twist=}°. Please set twist to a correct value for this structure",
-                title="Twist value error",
-                easy_close=True,
-                footer=None,
-            )
-            ui.modal_show(m)
-            return
+    with ui.Progress(min=0, max=len(maps())) as p:
+        p.set(message="Generating map projections", detail="This may take a while ...")
+        for mi, m in enumerate(maps()):
+            data, apix, twist, rise, csym, filename = m
+            if abs(twist) < 1e-3:
+                m = ui.modal(
+                    f"WARNING: {twist=}°. Please set twist to a correct value for this structure",
+                    title="Twist value error",
+                    easy_close=True,
+                    footer=None,
+                )
+                ui.modal_show(m)
+                return
 
-        filename = filename.split('.')[0]
+            filename = filename.split('.')[0]
+            p.set(mi+1, message=f"Processing {filename}")
 
-        nz, ny, nx = data.shape
-        if input.rescale_apix():
-            new_apix = image_apix()
-            if abs(twist)<90:
-                pitch = 360/abs(twist) * rise 
+            nz, ny, nx = data.shape
+            if input.rescale_apix():
+                new_apix = image_apix()
+                if abs(twist)<90:
+                    pitch = 360/abs(twist) * rise 
+                else:
+                    pitch = 360/(180-abs(twist)) * rise 
+                length = (int(pitch * input.length_xy() / new_apix)+2)//2*2
+                length = max(length, image_size())
+                new_size = (length, image_size(), image_size())
+
+                data_work = helicon.low_high_pass_filter(data, low_pass_fraction=apix/new_apix)
             else:
-                pitch = 360/(180-abs(twist)) * rise 
-            length = (int(pitch * input.length_xy() / new_apix)+2)//2*2
-            new_size = (length, image_size(), image_size())
+                new_apix = apix
+                new_size = (nz, ny, nx)
+                data_work = data
 
-            data_work = helicon.low_high_pass_filter(data, low_pass_fraction=apix/new_apix)
-        else:
-            new_apix = apix
-            new_size = (nz, ny, nx)
-            data_work = data
+            def projection(apix, twist, rise, csym, new_size, new_apix):
+                data_sym = helicon.apply_helical_symmetry(
+                    data = data_work,
+                    apix = apix,
+                    twist_degree = twist,
+                    rise_angstrom = rise,
+                    csym = csym,
+                    fraction = min(0.333, 5 * rise/(nz*apix)),
+                    new_size = new_size,
+                    new_apix = new_apix,
+                    cpu = helicon.available_cpu()
+                )
+                proj = data_sym.sum(axis=2).T
 
-        def projection(apix, twist, rise, csym, new_size, new_apix):
-            data_sym = helicon.apply_helical_symmetry(
-                data = data_work,
-                apix = apix,
-                twist_degree = twist,
-                rise_angstrom = rise,
-                csym = csym,
-                fraction = min(0.333, 5 * rise/(nz*apix)),
-                new_size = new_size,
-                new_apix = new_apix,
-                cpu = 1
-            )
-            proj = data_sym.sum(axis=2).T
+                if input.match_sf():
+                    proj = helicon.match_structural_factors(proj, new_apix, data_target=selected_images()[0], apix_target=image_apix())
+                return proj
+            
+            from persist_cache import cache
+            @cache(
+                name="emdb_projection", dir=str(helicon.cache_dir/"emdb"), expiry=30 * 24 * 60 * 60
+            )  # 30 days
+            def cached_projection(apix, twist, rise, csym, filename, new_size, new_apix):
+                return projection(apix, twist, rise, csym, new_size, new_apix)
+            
+            if filename.lower().startswith("emd"):
+                proj = cached_projection(apix, twist, rise, csym, filename, new_size, new_apix)
+            else:
+                proj = projection(apix, twist, rise, csym, new_size, new_apix)
 
-            if input.match_sf():
-                proj = helicon.match_structural_factors(proj, new_apix, data_target=selected_images()[0], apix_target=image_apix())
-            return proj
-        
-        from persist_cache import cache
-        @cache(
-            name="emdb_projection", dir=str(helicon.cache_dir/"emdb"), expiry=100 * 24 * 60 * 60
-        )  # 100 days
-        def cached_projection(apix, twist, rise, csym, filename, new_size, new_apix):
-            return projection(apix, twist, rise, csym, new_size, new_apix)
-        
-        if filename.lower().startswith("emd"):
-            proj = cached_projection(apix, twist, rise, csym, filename, new_size, new_apix)
-        else:
-            proj = projection(apix, twist, rise, csym, new_size, new_apix)
-
-        images += [proj]
-        image_labels += [filename]
-        
-        map_side_projection_labels.set(image_labels)
-        map_side_projections.set(images)
+            images += [proj]
+            image_labels += [filename]
+            
+            map_side_projection_labels.set(image_labels)
+            map_side_projections.set(images)
 
 @reactive.effect
 @reactive.event(input.map_xyz_projection_display_size)
