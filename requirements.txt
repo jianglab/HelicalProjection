@@ -1,4 +1,4 @@
-helicon[shiny] @ git+https://github.com/jianglab/helicon.git@d2876e9dbac68f673878cc06151d3abd82cfa1ee
+helicon[shiny] @ git+https://github.com/jianglab/helicon.git@c1849a275ee62388c6f89cf68b185f10abd9b43e
 mrcfile
 numpy
 pandas
