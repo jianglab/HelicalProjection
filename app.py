@@ -20,9 +20,11 @@ displayed_image_title = reactive.value("Select an image:")
 displayed_image_labels = reactive.value([])
 
 initial_selected_image_indices = reactive.value([0])
-selected_images = reactive.value([])
-selected_image_title = reactive.value("Selected image:")
-selected_image_labels = reactive.value([])
+selected_images_original = reactive.value([])
+selected_image_diameter = reactive.value(0)
+selected_images_cropped = reactive.value([])
+selected_images_title = reactive.value("Selected image:")
+selected_images_labels = reactive.value([])
 
 emdb_df = reactive.value([])
 
@@ -35,7 +37,7 @@ map_xyz_projection_display_size = reactive.value(128)
 map_side_projections = reactive.value([])
 map_side_projection_title = reactive.value("Map side projections:")
 map_side_projection_labels = reactive.value([])
-map_side_projection_display_size = reactive.value(256)
+map_side_projection_vertical_display_size = reactive.value(128)
  
 ui.head_content(ui.tags.title("HelicalProjection"))
 helicon.shiny.google_analytics(id="G-ELN1JJVYYZ")
@@ -92,9 +94,9 @@ with ui.sidebar(
                         )
                     return ret
 
-            with ui.div(id="image-selection", style="max-height: 80vh; overflow-y: auto;"):
+            with ui.div(id="image-selection", style="max-height: 80vh; overflow-y: auto; display: flex; flex-direction: column; align-items: center;"):
                 helicon.shiny.image_select(
-                    id="select_images",
+                    id="select_image",
                     label=displayed_image_title,
                     images=displayed_images,
                     image_labels=displayed_image_labels,
@@ -103,16 +105,25 @@ with ui.sidebar(
                     allow_multiple_selection=False
                 )
 
-                @reactive.effect
-                @reactive.event(input.select_images)
-                def update_selected_images():
-                    selected_images.set(
-                        [displayed_images()[i] for i in input.select_images()]
-                    )
-                    selected_image_labels.set(
-                        [displayed_image_labels()[i] for i in input.select_images()]
-                    )
-
+                @render.ui
+                @reactive.event(input.show_gallery_print_button)
+                def generate_ui_print_input_images():
+                    req(input.show_gallery_print_button())
+                    return ui.input_action_button(
+                            "print_input_images",
+                            "Print input images",
+                            onclick=""" 
+                                        var w = window.open();
+                                        w.document.write(document.head.outerHTML);
+                                        var printContents = document.getElementById('select_image-show_image_gallery').innerHTML;
+                                        w.document.write(printContents);
+                                        w.document.write('<script type="text/javascript">window.onload = function() { window.print(); w.close();};</script>');
+                                        w.document.close();
+                                        w.focus();
+                                    """,
+                            width="200px"
+                        )
+                
         with ui.nav_panel("Input 3D Maps"):
             with ui.div(id="input_map_files", style="display: flex; flex-direction: column; align-items: flex-start;"):
                 ui.input_radio_buttons(
@@ -204,7 +215,7 @@ with ui.sidebar(
                             width="100%"
                         )
                 
-            with ui.div(style="max-height: 80vh; overflow-y: auto;"):
+            with ui.div(style="max-height: 80vh; overflow-y: auto; display: flex; flex-direction: column; align-items: center;"):
                 helicon.shiny.image_select(
                     id="display_map_xyz_projections",
                     label=map_xyz_projection_title,
@@ -213,6 +224,25 @@ with ui.sidebar(
                     image_size=map_xyz_projection_display_size,
                     enable_selection=False
                 )
+
+                @render.ui
+                @reactive.event(input.show_gallery_print_button)
+                def generate_ui_print_map_xyz_projection_images():
+                    req(input.show_gallery_print_button())
+                    return ui.input_action_button(
+                            "print_map_xyz_projection_images",
+                            "Print map XYZ projection images",
+                            onclick=""" 
+                                        var w = window.open();
+                                        w.document.write(document.head.outerHTML);
+                                        var printContents = document.getElementById('display_map_xyz_projections-show_image_gallery').innerHTML;
+                                        w.document.write(printContents);
+                                        w.document.write('<script type="text/javascript">window.onload = function() { window.print(); w.close();};</script>');
+                                        w.document.close();
+                                        w.focus();
+                                    """,
+                            width="300px"
+                        )
 
         with ui.nav_panel("Parameters"):
             with ui.layout_columns(
@@ -276,27 +306,44 @@ with ui.sidebar(
                     step=0.1,
                 )
 
+            with ui.layout_columns(
+                col_widths=6, style="align-items: flex-end;"
+            ):                    
+                ui.input_checkbox(
+                    "show_gallery_print_button", "Show image gallery print button", value=False
+                )
+
+
 title = "HelicalProjection: compare 2D images with helical structure projections"
 ui.h1(title, style="font-weight: bold;")
 
 with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; gap: 10px;"):
     helicon.shiny.image_select(
         id="display_selected_image",
-        label=selected_image_title,
-        images=selected_images,
-        image_labels=selected_image_labels,
-        image_size=map_side_projection_display_size,
+        label=selected_images_title,
+        images=selected_images_cropped,
+        image_labels=selected_images_labels,
+        image_size=map_side_projection_vertical_display_size,
         justification="left",
         enable_selection=False,
     )
 
     with ui.div():
         ui.input_slider(
-            "map_side_projection_display_size",
+            "vertical_crop_size",
+            "Crop vertical dimension (pixel)",
+            min=32,
+            max=256,
+            value=0,
+            step=2,
+        )
+        
+        ui.input_slider(
+            "map_side_projection_vertical_display_size",
             "Map side projection image size (pixel)",
             min=32,
             max=1024,
-            value=256,
+            value=128,
             step=32,
         )
         
@@ -312,10 +359,28 @@ with ui.div(style="max-height: 80vh; overflow-y: auto;"):
         label=map_side_projection_title,
         images=map_side_projections,
         image_labels=map_side_projection_labels,
-        image_size=map_side_projection_display_size,
+        image_size=map_side_projection_vertical_display_size,
         justification="left",
         enable_selection=False
     )
+
+    @render.ui
+    @reactive.event(input.show_gallery_print_button)
+    def generate_ui_print_map_side_projection_images():
+        req(input.show_gallery_print_button())
+        return ui.input_action_button(
+                "print_map_side_projection_images",
+                "Print map side projection images",
+                onclick=""" 
+                            var w = window.open();
+                            w.document.write(document.head.outerHTML);
+                            var printContents = document.getElementById('display_map_side_projections-show_image_gallery').innerHTML;
+                            w.document.write(printContents);
+                            w.document.write('<script type="text/javascript">window.onload = function() { window.print(); w.close();};</script>');
+                            w.document.close();
+                            w.focus();
+                        """
+            )
 
 ui.HTML(
     "<i><p>Developed by the <a href='https://jiang.bio.purdue.edu/HelicalProjection' target='_blank'>Jiang Lab</a>. Report issues to <a href='https://github.com/jianglab/HelicalProjection/issues' target='_blank'>HelicalProjection@GitHub</a>.</p></i>"
@@ -397,6 +462,46 @@ def get_displayed_images():
 
 
 @reactive.effect
+@reactive.event(input.select_image)
+def update_selecte_image_diameter():
+    tmp = [displayed_images()[i] for i in input.select_image()]
+    ny =  max([img.shape[0] for img in tmp])
+    diameter = max([compute.estimate_diameter(data=img) for img in tmp])
+    crop_size = int(diameter * 1.5)//2*2
+    ui.update_numeric("vertical_crop_size", value=crop_size, max=ny)
+
+
+@reactive.effect
+@reactive.event(input.select_image)
+def update_selecte_images_orignal():
+    selected_images_original.set(
+        [displayed_images()[i] for i in input.select_image()]
+    )
+    selected_images_labels.set(
+        [displayed_image_labels()[i] for i in input.select_image()]
+    )
+
+
+@reactive.effect
+@reactive.event(selected_images_original, input.vertical_crop_size)
+def crop_selected_images():
+    req(len(selected_images_original()))
+    req(input.vertical_crop_size()>0)
+    if input.vertical_crop_size()<32:
+        selected_images_cropped.set(selected_images_original)
+    else:
+        d = input.vertical_crop_size()
+        cropped = []
+        for img in selected_images_original():
+            ny, nx = img.shape
+            if d<ny:
+                cropped.append(helicon.crop_center(img, shape=(d, nx)))
+            else:
+                cropped.append(img)
+        selected_images_cropped.set(cropped)
+
+
+@reactive.effect
 @reactive.event(input.input_mode_maps, input.upload_map, input.twist, input.rise, input.csym)
 def get_map_from_upload():
     req(input.input_mode_maps() == "upload")
@@ -405,6 +510,7 @@ def get_map_from_upload():
     map_file = fileinfo[0]["datapath"]
     try:
         data, apix = compute.get_images_from_file(map_file)
+        maps.set([(data, apix, input.twist(), input.rise(), input.csym(), fileinfo[0]["name"])])
     except Exception as e:
         print(e)
         data, apix = None, 0
@@ -415,7 +521,6 @@ def get_map_from_upload():
             footer=None,
         )
         ui.modal_show(m)
-    maps.set([(data, apix, input.twist(), input.rise(), input.csym(), fileinfo[0]["name"])])
 
 
 @reactive.effect
@@ -426,18 +531,18 @@ def get_map_from_url():
     url = input.url_map()
     try:
         data, apix = compute.get_images_from_url(url)
+        maps.set([(data, apix, input.twist(), input.rise(), input.csym(), url.split("/")[-1])])
     except Exception as e:
         print(e)
         data, apix = None, 0
         nx = 0
         m = ui.modal(
-            f"failed to download 3D map from {input.url_map()}",
+            f"failed to download 3D map from {input.url_map()}" + "\n" + str(e),
             title="File download error",
             easy_close=True,
             footer=None,
         )
         ui.modal_show(m)
-    maps.set([(data, apix, input.twist(), input.rise(), input.csym(), url.split("/")[-1])])
 
 
 @reactive.effect
@@ -448,9 +553,10 @@ def get_map_from_emdb():
     maps_tmp = []
     with ui.Progress(min=0, max=len(emdb_df_selected)) as p:
         p.set(message="Obtaining maps", detail="This may take a while ...")
-        for ri, row in emdb_df_selected.iterrows():
+        for ri in range(len(emdb_df_selected)):
+            row = emdb_df_selected.iloc[ri]
             emdb_id = row['emdb_id']
-            p.set(ri+1, message=f"Downloading {emdb_id}")
+            p.set(ri+1, message=f"{ri+1}/{len(emdb_df_selected)}: downloading: {emdb_id}")
             twist = row['twist'] if 'twist' in row and not pd.isna(row['twist']) else 0
             rise = row['rise'] if 'rise' in row and not pd.isna(row['rise']) else 0
             csym = int(row['csym'][1:]) if 'csym' in row and not pd.isna(row['csym']) else 1
@@ -519,7 +625,7 @@ def get_map_side_projections():
                 return
 
             filename = filename.split('.')[0]
-            p.set(mi+1, message=f"Processing {filename}")
+            p.set(mi+1, message=f"{mi+1}/{len(maps())}: processing {filename}")
 
             nz, ny, nx = data.shape
             if input.rescale_apix():
@@ -527,10 +633,11 @@ def get_map_side_projections():
                 if abs(twist)<90:
                     pitch = 360/abs(twist) * rise 
                 else:
-                    pitch = 360/(180-abs(twist)) * rise 
+                    pitch = 360/(180-abs(twist)) * rise
+                image_ny, image_nx = selected_images_cropped()[0].shape
                 length = (int(pitch * input.length_xy() / new_apix)+2)//2*2
-                length = max(length, image_size())
-                new_size = (length, image_size(), image_size())
+                length = max(length, image_nx)
+                new_size = (length, image_ny, image_ny)
 
                 data_work = helicon.low_high_pass_filter(data, low_pass_fraction=apix/new_apix)
             else:
@@ -553,7 +660,7 @@ def get_map_side_projections():
                 proj = data_sym.sum(axis=2).T
 
                 if input.match_sf():
-                    proj = helicon.match_structural_factors(proj, new_apix, data_target=selected_images()[0], apix_target=image_apix())
+                    proj = helicon.match_structural_factors(proj, new_apix, data_target=selected_images_cropped()[0], apix_target=image_apix())
                 return proj
             
             from persist_cache import cache
@@ -580,6 +687,6 @@ def update_map_xyz_projection_display_size():
     map_xyz_projection_display_size.set(input.map_xyz_projection_display_size())
 
 @reactive.effect
-@reactive.event(input.map_side_projection_display_size)
-def update_map_side_projection_display_size():
-    map_side_projection_display_size.set(input.map_side_projection_display_size())
+@reactive.event(input.map_side_projection_vertical_display_size)
+def update_map_side_projection_vertical_display_size():
+    map_side_projection_vertical_display_size.set(input.map_side_projection_vertical_display_size())
