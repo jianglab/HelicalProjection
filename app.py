@@ -198,10 +198,14 @@ with ui.sidebar(
                         if input.show_twist_star and "twist" in df.columns and "rise" in df.columns:
                             rise = df["rise"].astype(float).abs()
                             twist_star = df["twist"].astype(float).abs()
+                            # 2sub1
                             mask = (rise * 2 < 5) & (4.5 < rise * 2) & ((360 - twist_star * 2) < 90)
                             mask |= (rise < 5) & (4.5 < rise) & ((360 - twist_star * 2) < 90)
                             twist_star = twist_star.copy()
                             twist_star[mask] = 360 - twist_star[mask] * 2
+                            #3sub1
+                            mask = (rise * 3 < 5) & (4.5 < rise * 3) & ((360 - twist_star * 3) < 90)
+                            twist_star[mask] = 360 - twist_star[mask] * 3                            
                             cols = df.columns.tolist()
                             twist_index = cols.index('twist')
                             cols.insert(twist_index, 'twist*')
