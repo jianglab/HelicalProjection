@@ -34,7 +34,8 @@ map_xyz_projection_title = reactive.value("Map XYZ projections:")
 map_xyz_projection_labels = reactive.value([])
 map_xyz_projection_display_size = reactive.value(128)
 
-map_side_projections = reactive.value([])
+map_side_projections_with_alignments = reactive.value([])
+map_side_projections_displayed = reactive.value([])
 map_side_projection_title = reactive.value("Map side projections:")
 map_side_projection_labels = reactive.value([])
 map_side_projection_vertical_display_size = reactive.value(128)
@@ -139,7 +140,7 @@ with ui.sidebar(
                 def create_input_map_files_ui():
                     maps.set([])
                     map_xyz_projections.set([])
-                    map_side_projections.set([])
+                    map_side_projections_displayed.set([])
                     ret = []
                     if input.input_mode_maps() in ['upload', 'url']:
                         if input.input_mode_maps() == 'upload':
@@ -328,7 +329,7 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
         enable_selection=False,
     )
 
-    with ui.div():
+    with ui.layout_columns(col_widths=6): 
         ui.input_slider(
             "vertical_crop_size",
             "Crop vertical dimension (pixel)",
@@ -346,6 +347,15 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
             value=128,
             step=32,
         )
+
+        ui.input_radio_buttons(
+            "sort_map_side_projections_by",
+            "Sort projections by",
+            choices=["selection", "similarity score"],
+            selected="similarity score",
+            inline=True
+        )
+
         
         @render.ui
         @reactive.event(maps)
@@ -357,7 +367,7 @@ with ui.div(style="max-height: 80vh; overflow-y: auto;"):
     helicon.shiny.image_select(
         id="display_map_side_projections",
         label=map_side_projection_title,
-        images=map_side_projections,
+        images=map_side_projections_displayed,
         image_labels=map_side_projection_labels,
         image_size=map_side_projection_vertical_display_size,
         justification="left",
@@ -467,7 +477,7 @@ def update_selecte_image_diameter():
     tmp = [displayed_images()[i] for i in input.select_image()]
     ny =  max([img.shape[0] for img in tmp])
     diameter = max([compute.estimate_diameter(data=img) for img in tmp])
-    crop_size = int(diameter * 1.5)//2*2
+    crop_size = int(diameter * 2)//2*2
     ui.update_numeric("vertical_crop_size", value=crop_size, max=ny)
 
 
@@ -572,7 +582,7 @@ def get_map_from_emdb():
                     footer=None,
                 )
                 ui.modal_show(m)
-    map_side_projections.set([])
+    map_side_projections_displayed.set([])
     maps.set(maps_tmp)
     
  
@@ -604,9 +614,13 @@ def get_map_xyz_projections():
         map_xyz_projections.set(images)
     
 @reactive.effect
-@reactive.event(input.generate_projections, input.match_sf, input.rescale_apix, input.length_xy)
+@reactive.event(input.generate_projections, selected_images_cropped, input.match_sf, input.rescale_apix, input.length_xy)
 def get_map_side_projections():
-    req(maps() is not None)
+    req(len(maps()))
+    req(len(selected_images_cropped()))
+    image_query = selected_images_cropped()[0]
+    image_query_label = selected_images_labels()[0] 
+    
     images = []
     image_labels = []
 
@@ -634,9 +648,8 @@ def get_map_side_projections():
                     pitch = 360/abs(twist) * rise 
                 else:
                     pitch = 360/(180-abs(twist)) * rise
-                image_ny, image_nx = selected_images_cropped()[0].shape
-                length = (int(pitch * input.length_xy() / new_apix)+2)//2*2
-                length = max(length, image_nx)
+                image_ny, image_nx = image_query.shape
+                length = int(pitch / new_apix + image_nx * input.length_xy())//2*2
                 new_size = (length, image_ny, image_ny)
 
                 data_work = helicon.low_high_pass_filter(data, low_pass_fraction=apix/new_apix)
@@ -645,7 +658,7 @@ def get_map_side_projections():
                 new_size = (nz, ny, nx)
                 data_work = data
 
-            def projection(apix, twist, rise, csym, new_size, new_apix):
+            def projection(apix, twist, rise, csym, new_size, new_apix, match_sf):
                 data_sym = helicon.apply_helical_symmetry(
                     data = data_work,
                     apix = apix,
@@ -659,27 +672,47 @@ def get_map_side_projections():
                 )
                 proj = data_sym.sum(axis=2).T
 
-                if input.match_sf():
-                    proj = helicon.match_structural_factors(proj, new_apix, data_target=selected_images_cropped()[0], apix_target=image_apix())
+                if match_sf:
+                    proj = helicon.match_structural_factors(data=proj, apix=new_apix, data_target=image_query, apix_target=new_apix)
                 return proj
             
             from persist_cache import cache
             @cache(
                 name="emdb_projection", dir=str(helicon.cache_dir/"emdb"), expiry=30 * 24 * 60 * 60
             )  # 30 days
-            def cached_projection(apix, twist, rise, csym, filename, new_size, new_apix):
-                return projection(apix, twist, rise, csym, new_size, new_apix)
+            def cached_projection(apix, twist, rise, csym, filename, new_size, new_apix, match_sf):
+                return projection(apix, twist, rise, csym, new_size, new_apix, match_sf)
             
             if filename.lower().startswith("emd"):
-                proj = cached_projection(apix, twist, rise, csym, filename, new_size, new_apix)
+                proj = cached_projection(apix, twist, rise, csym, filename, new_size, new_apix, input.match_sf())
             else:
-                proj = projection(apix, twist, rise, csym, new_size, new_apix)
+                proj = projection(apix, twist, rise, csym, new_size, new_apix, input.match_sf())
+                
+            flip, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving = helicon.align_images(image_moving=image_query, image_ref=proj, angle_range=15, check_polarity=True, check_flip=True, return_aligned_moving_image=True) 
 
-            images += [proj]
-            image_labels += [filename]
+            images += [(flip, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving, image_query_label, proj, filename)]
+
+    map_side_projections_with_alignments.set(images)
             
-            map_side_projection_labels.set(image_labels)
-            map_side_projections.set(images)
+@reactive.effect
+@reactive.event(map_side_projections_with_alignments, input.sort_map_side_projections_by)
+def update_map_side_projections_displayed():
+    req(len(map_side_projections_with_alignments()))
+    images_work = map_side_projections_with_alignments()
+    if input.sort_map_side_projections_by() == "similarity score":
+        images_work = sorted(images_work, key=lambda x: -x[3])
+    
+    images_displayed = []
+    images_displayed_labels = []
+    for i, image in enumerate(images_work):
+        flip, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving, image_query_label, proj, proj_label = image
+        images_displayed.append(aligned_image_moving)
+        images_displayed_labels.append(f"{image_query_label}: {'vflip|' if flip else ''}{rotation_angle:.1f}°")
+        images_displayed.append(proj)
+        images_displayed_labels.append(f"{proj_label}: score={similarity_score:.3f}")
+
+    map_side_projections_displayed.set(images_displayed)
+    map_side_projection_labels.set(images_displayed_labels)
 
 @reactive.effect
 @reactive.event(input.map_xyz_projection_display_size)
