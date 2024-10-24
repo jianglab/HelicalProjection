@@ -200,12 +200,12 @@ with ui.sidebar(
                             twist_star = df["twist"].astype(float).abs()
                             # 2sub1
                             mask = (rise * 2 < 5) & (4.5 < rise * 2) & ((360 - twist_star * 2) < 90)
-                            mask |= (rise < 5) & (4.5 < rise) & ((360 - twist_star * 2) < 90)
+                            mask |= (rise < 5) & (4.5 < rise) & (abs(360 - twist_star * 2) < 90)
                             twist_star = twist_star.copy()
-                            twist_star[mask] = 360 - twist_star[mask] * 2
+                            twist_star[mask] = abs(360 - twist_star[mask] * 2)
                             #3sub1
-                            mask = (rise * 3 < 5) & (4.5 < rise * 3) & ((360 - twist_star * 3) < 90)
-                            twist_star[mask] = 360 - twist_star[mask] * 3                            
+                            mask = (rise * 3 < 5) & (4.5 < rise * 3) & (abs(360 - twist_star * 3) < 90)
+                            twist_star[mask] = abs(360 - twist_star[mask] * 3)                        
                             cols = df.columns.tolist()
                             twist_index = cols.index('twist')
                             cols.insert(twist_index, 'twist*')
@@ -638,24 +638,43 @@ def get_map_side_projections():
     with ui.Progress(min=0, max=len(maps())) as p:
         p.set(message="Generating side projections", detail="This may take a while ...")
 
+        twist_zeros = []
+        failed = []
         for mi, m in enumerate(maps()):            
             data, apix, twist, rise, csym, filename = m
             map_name = filename.split('.')[0]
+
+            if abs(twist) == 0:
+                twist_zeros.append(map_name)
+                continue
 
             p.set(mi, message=f"{mi+1}/{len(maps())}: processing {map_name}")
 
             result = compute.symmetrize_project_one_map(data, apix, twist, rise, csym, map_name, image_query, image_query_label, image_query_apix, rescale_apix, length_xy_factor, match_sf)
 
             if result is None:
-                m = ui.modal(
-                    f"WARNING: twist=0°. Please set twist to a correct value for structure {i+1}",
-                    title="Twist value error",
-                    easy_close=True,
-                    footer=None,
-                )
+                failed.append(map_name)
                 continue
 
             images.append(result)
+
+    if twist_zeros:
+        m = ui.modal(
+            f"WARNING: twist=0°. Please set twist to a correct value for {' '.join(twist_zeros)}",
+            title="Twist value error",
+            easy_close=True,
+            footer=None,
+        )
+        ui.modal_show(m)
+
+    if failed:
+        m = ui.modal(
+            f"WARNING: failed to generate side projection of {' '.join(failed)}",
+            title="Projection error",
+            easy_close=True,
+            footer=None,
+        )
+        ui.modal_show(m)
     
     map_side_projections_with_alignments.set(images)
             
