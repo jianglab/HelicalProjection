@@ -567,10 +567,10 @@ def get_map_from_emdb():
     maps_tmp = []
     with ui.Progress(min=0, max=len(emdb_df_selected)) as p:
         p.set(message="Obtaining maps", detail="This may take a while ...")
-        for ri in range(len(emdb_df_selected)):
-            row = emdb_df_selected.iloc[ri]
+        for i in range(len(emdb_df_selected)):
+            row = emdb_df_selected.iloc[i]
             emdb_id = row['emdb_id']
-            p.set(ri+1, message=f"{ri+1}/{len(emdb_df_selected)}: downloading: {emdb_id}")
+            p.set(i, message=f"{i+1}/{len(emdb_df_selected)}: downloading: {emdb_id}")
             twist = row['twist'] if 'twist' in row and not pd.isna(row['twist']) else 0
             rise = row['rise'] if 'rise' in row and not pd.isna(row['rise']) else 0
             csym = int(row['csym'][1:]) if 'csym' in row and not pd.isna(row['csym']) else 1
@@ -593,29 +593,34 @@ def get_map_from_emdb():
 @reactive.effect
 @reactive.event(maps, input.length_z, input.map_projection_xyz_choices)
 def get_map_xyz_projections():
-    req(maps() is not None)
+    req(len(maps()))
     images = []
     image_labels = []
 
-    for mi, m in enumerate(maps()):
-        data, apix, twist, rise, csym, filename = m
-        filename = filename.split('.')[0]
+    with ui.Progress(min=0, max=len(maps())) as p:
+        p.set(message="Generating x/yz/ projections", detail="This may take a while ...")
         
-        if 'z' in input.map_projection_xyz_choices():
-            if rise>0:
-                images += [helicon.crop_center_z(data, n=max(1, int(0.5 + input.length_z() * rise / apix))).sum(axis=0)]
-            else:
-                images += [data.sum(axis=0)]
-            image_labels += [filename + ':Z']
-        if 'y' in input.map_projection_xyz_choices():
-            images += [data.sum(axis=1)]
-            image_labels += [filename + ':Y']
-        if 'x' in input.map_projection_xyz_choices():
-            images += [data.sum(axis=2)]
-            image_labels += [filename + ':X']
+        for mi, m in enumerate(maps()):
+            data, apix, twist, rise, csym, filename = m
+            filename = filename.split('.')[0]
 
-        map_xyz_projection_labels.set(image_labels)
-        map_xyz_projections.set(images)
+            p.set(mi, message=f"{mi+1}/{len(maps())}: processing {filename}")
+            
+            if 'z' in input.map_projection_xyz_choices():
+                if rise>0:
+                    images += [helicon.crop_center_z(data, n=max(1, int(0.5 + input.length_z() * rise / apix))).sum(axis=0)]
+                else:
+                    images += [data.sum(axis=0)]
+                image_labels += [filename + ':Z']
+            if 'y' in input.map_projection_xyz_choices():
+                images += [data.sum(axis=1)]
+                image_labels += [filename + ':Y']
+            if 'x' in input.map_projection_xyz_choices():
+                images += [data.sum(axis=2)]
+                image_labels += [filename + ':X']
+
+            map_xyz_projection_labels.set(image_labels)
+            map_xyz_projections.set(images)
     
 @reactive.effect
 @reactive.event(input.generate_projections, selected_images_cropped, input.match_sf, input.rescale_apix, input.length_xy)
@@ -623,79 +628,35 @@ def get_map_side_projections():
     req(len(maps()))
     req(len(selected_images_cropped()))
     image_query = selected_images_cropped()[0]
-    image_query_label = selected_images_labels()[0] 
+    image_query_label = selected_images_labels()[0]
+    image_query_apix = image_apix()
+    rescale_apix = input.rescale_apix()
+    length_xy_factor = input.length_xy()
+    match_sf = input.match_sf()
     
     images = []
-    image_labels = []
-
     with ui.Progress(min=0, max=len(maps())) as p:
-        p.set(message="Generating map projections", detail="This may take a while ...")
-        for mi, m in enumerate(maps()):
+        p.set(message="Generating side projections", detail="This may take a while ...")
+
+        for mi, m in enumerate(maps()):            
             data, apix, twist, rise, csym, filename = m
-            if abs(twist) < 1e-3:
+            map_name = filename.split('.')[0]
+
+            p.set(mi, message=f"{mi+1}/{len(maps())}: processing {map_name}")
+
+            result = compute.symmetrize_project_one_map(data, apix, twist, rise, csym, map_name, image_query, image_query_label, image_query_apix, rescale_apix, length_xy_factor, match_sf)
+
+            if result is None:
                 m = ui.modal(
-                    f"WARNING: {twist=}°. Please set twist to a correct value for this structure",
+                    f"WARNING: twist=0°. Please set twist to a correct value for structure {i+1}",
                     title="Twist value error",
                     easy_close=True,
                     footer=None,
                 )
-                ui.modal_show(m)
-                return
+                continue
 
-            filename = filename.split('.')[0]
-            p.set(mi+1, message=f"{mi+1}/{len(maps())}: processing {filename}")
-
-            nz, ny, nx = data.shape
-            if input.rescale_apix():
-                new_apix = image_apix()
-                if abs(twist)<90:
-                    pitch = 360/abs(twist) * rise 
-                else:
-                    pitch = 360/(180-abs(twist)) * rise
-                image_ny, image_nx = image_query.shape
-                length = int(pitch / new_apix + image_nx * input.length_xy())//2*2
-                new_size = (length, image_ny, image_ny)
-
-                data_work = helicon.low_high_pass_filter(data, low_pass_fraction=apix/new_apix)
-            else:
-                new_apix = apix
-                new_size = (nz, ny, nx)
-                data_work = data
-
-            def projection(apix, twist, rise, csym, new_size, new_apix, match_sf):
-                data_sym = helicon.apply_helical_symmetry(
-                    data = data_work,
-                    apix = apix,
-                    twist_degree = twist,
-                    rise_angstrom = rise,
-                    csym = csym,
-                    fraction = min(0.333, 5 * rise/(nz*apix)),
-                    new_size = new_size,
-                    new_apix = new_apix,
-                    cpu = helicon.available_cpu()
-                )
-                proj = data_sym.sum(axis=2).T
-
-                if match_sf:
-                    proj = helicon.match_structural_factors(data=proj, apix=new_apix, data_target=image_query, apix_target=new_apix)
-                return proj
-            
-            from persist_cache import cache
-            @cache(
-                name="emdb_projection", dir=str(helicon.cache_dir/"emdb"), expiry=30 * 24 * 60 * 60
-            )  # 30 days
-            def cached_projection(apix, twist, rise, csym, filename, new_size, new_apix, match_sf):
-                return projection(apix, twist, rise, csym, new_size, new_apix, match_sf)
-            
-            if filename.lower().startswith("emd"):
-                proj = cached_projection(apix, twist, rise, csym, filename, new_size, new_apix, input.match_sf())
-            else:
-                proj = projection(apix, twist, rise, csym, new_size, new_apix, input.match_sf())
-                
-            flip, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving = helicon.align_images(image_moving=image_query, image_ref=proj, angle_range=15, check_polarity=True, check_flip=True, return_aligned_moving_image=True) 
-
-            images += [(flip, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving, image_query_label, proj, filename)]
-
+            images.append(result)
+    
     map_side_projections_with_alignments.set(images)
             
 @reactive.effect

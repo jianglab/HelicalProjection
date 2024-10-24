@@ -3,10 +3,8 @@ import numpy as np
 import pandas as pd
 import helicon
 
-from persist_cache import cache
-
-@cache(
-    name="emdb_projection", dir=str(helicon.cache_dir/"downloads"), expiry=7 * 24 * 60 * 60
+@helicon.cache(
+    cache_dir=str(helicon.cache_dir/"downloads"), expires_after=7, verbose=0
 )  # 7 days
 def get_images_from_url(url):
     url_final = get_direct_url(url)  # convert cloud drive indirect url to direct url
@@ -110,3 +108,55 @@ def estimate_diameter(data):
     # diameter = (abs(center) + sigma*1.731) *2   # exp(-1.731**2) = 0.05
     diameter = sigma * 1.731 * 2  # exp(-1.731**2) = 0.05
     return diameter  # pixel    
+
+
+@helicon.cache(expires_after=7, cache_dir=helicon.cache_dir/"helicalProjection", verbose=0)
+def symmetrize_project_one_map(data, apix, twist, rise, csym, map_name, image_query, image_query_label, image_query_apix, rescale_apix, length_xy_factor, match_sf):
+    if abs(twist) < 1e-3:
+        return None
+
+    nz, ny, nx = data.shape
+    if rescale_apix:
+        new_apix = image_query_apix
+        if abs(twist)<90:
+            pitch = 360/abs(twist) * rise 
+        else:
+            pitch = 360/(180-abs(twist)) * rise
+        image_ny, image_nx = image_query.shape
+        length = int(pitch / new_apix + image_nx * length_xy_factor)//2*2
+        new_size = (length, image_ny, image_ny)
+
+        data_work = helicon.low_high_pass_filter(data, low_pass_fraction=apix/new_apix)
+    else:
+        new_apix = apix
+        new_size = (nz, ny, nx)
+        data_work = data
+
+    profile_1d = np.sum(data_work, axis=(1, 2))
+    threshold = 0.01 * np.max(profile_1d)
+    non_zero_indices = np.where(profile_1d > threshold)[0]
+    first_non_zero = non_zero_indices[0]
+    last_non_zero = non_zero_indices[-1]
+    max_fraction = min(last_non_zero - len(profile_1d) // 2, len(profile_1d) // 2 - first_non_zero) / len(profile_1d)
+    assert max_fraction>0
+    fraction = min(max_fraction, 5 * rise / (nz * apix))
+    
+    data_sym = helicon.apply_helical_symmetry(
+        data = data_work,
+        apix = apix,
+        twist_degree = twist,
+        rise_angstrom = rise,
+        csym = csym,
+        fraction = fraction,
+        new_size = new_size,
+        new_apix = new_apix,
+        cpu = helicon.available_cpu()
+    )
+    proj = data_sym.sum(axis=2).T
+
+    if match_sf:
+        proj = helicon.match_structural_factors(data=proj, apix=new_apix, data_target=image_query, apix_target=new_apix)
+        
+    flip, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving = helicon.align_images(image_moving=image_query, image_ref=proj, angle_range=15, check_polarity=True, check_flip=True, return_aligned_moving_image=True) 
+
+    return (flip, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving, image_query_label, proj, map_name)
