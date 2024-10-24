@@ -132,14 +132,7 @@ def symmetrize_project_one_map(data, apix, twist, rise, csym, map_name, image_qu
         new_size = (nz, ny, nx)
         data_work = data
 
-    profile_1d = np.sum(data_work, axis=(1, 2))
-    threshold = 0.01 * np.max(profile_1d)
-    non_zero_indices = np.where(profile_1d > threshold)[0]
-    first_non_zero = non_zero_indices[0]
-    last_non_zero = non_zero_indices[-1]
-    max_fraction = min(last_non_zero - len(profile_1d) // 2, len(profile_1d) // 2 - first_non_zero) / len(profile_1d)
-    assert max_fraction>0
-    fraction = min(max_fraction, 5 * rise / (nz * apix))
+    fraction = 5 * rise / (nz * apix)
     
     data_sym = helicon.apply_helical_symmetry(
         data = data_work,

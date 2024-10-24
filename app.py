@@ -604,7 +604,7 @@ def get_map_xyz_projections():
             data, apix, twist, rise, csym, filename = m
             filename = filename.split('.')[0]
 
-            p.set(mi, message=f"{mi+1}/{len(maps())}: processing {filename}")
+            p.set(mi, message=f"{mi+1}/{len(maps())}: x/y/z-projecting {filename}")
             
             if 'z' in input.map_projection_xyz_choices():
                 if rise>0:
@@ -648,7 +648,7 @@ def get_map_side_projections():
                 twist_zeros.append(map_name)
                 continue
 
-            p.set(mi, message=f"{mi+1}/{len(maps())}: processing {map_name}")
+            p.set(mi, message=f"{mi+1}/{len(maps())}: symmetrizing/projecting {map_name}")
 
             result = compute.symmetrize_project_one_map(data, apix, twist, rise, csym, map_name, image_query, image_query_label, image_query_apix, rescale_apix, length_xy_factor, match_sf)
 
