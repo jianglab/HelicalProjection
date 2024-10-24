@@ -117,12 +117,15 @@ def symmetrize_project_one_map(data, apix, twist, rise, csym, map_name, image_qu
 
     nz, ny, nx = data.shape
     if rescale_apix:
-        new_apix = image_query_apix
-        if abs(twist)<90:
-            pitch = 360/abs(twist) * rise 
-        else:
-            pitch = 360/(180-abs(twist)) * rise
         image_ny, image_nx = image_query.shape
+        new_apix = image_query_apix
+        twist_work = helicon.set_to_periodic_range(twist, min=-180, max=180)
+        if abs(twist_work)<90:
+            pitch = 360/abs(twist_work) * rise 
+        elif abs(twist_work)<180:
+            pitch = 360/(180-abs(twist_work)) * rise
+        else:
+            pitch = image_nx * new_apix
         length = int(pitch / new_apix + image_nx * length_xy_factor)//2*2
         new_size = (length, image_ny, image_ny)
 
