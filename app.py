@@ -2,6 +2,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from shinywidgets import render_plotly
+
 import shiny
 from shiny import reactive, req
 from shiny.express import input, ui, render
@@ -288,7 +290,7 @@ with ui.sidebar(
 
             with ui.layout_columns(
                 col_widths=6, style="align-items: flex-end;"
-            ):                    
+            ):
                 ui.input_numeric(
                     "map_xyz_projection_display_size",
                     "Map XYZ projection image size (pixel)",
@@ -314,9 +316,13 @@ with ui.sidebar(
 
             with ui.layout_columns(
                 col_widths=6, style="align-items: flex-end;"
-            ):                    
+            ):
                 ui.input_checkbox(
                     "show_gallery_print_button", "Show image gallery print button", value=False
+                )
+
+                ui.input_checkbox(
+                    "plot_scores", "Plot matching scores", value=True
                 )
 
 
@@ -378,6 +384,58 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
 
 
 with ui.div(style="max-height: 80vh; overflow-y: auto;"):
+    @render_plotly
+    @reactive.event(input.plot_scores, maps, map_side_projections_displayed,  map_side_projections_with_alignments)
+    def generate_score_plot():
+        req(input.plot_scores())
+        req(len(maps()))
+        req(len(map_side_projections_displayed()))
+        req(len(map_side_projections_with_alignments()))
+
+        images_work = map_side_projections_with_alignments()
+        images_work = sorted(images_work, key=lambda x: -x[3])
+        
+        scores = [img[3] for img in images_work]
+        labels = [img[-1] for img in images_work]
+        
+        import plotly.express as px
+        
+        fig = px.scatter(
+            x=range(1, len(scores)+1),
+            y=scores,
+            hover_name=labels,
+            labels={'x': 'Rank', 'y': 'Similarity Score'},
+        )
+        
+        fig.update_traces(
+            hovertemplate='<b>%{hovertext}</b><br>Score: %{y:.3f}<br>Rank: %{x}'
+        )
+        
+        fig.update_layout(
+            xaxis_title='Rank',
+            yaxis_title='Similarity Score',
+            showlegend=False
+        )
+        
+        if len(labels) > 0:
+            fig.add_annotation(
+                x=1,
+                y=scores[0],
+                text=labels[0],
+                yanchor='middle',
+                showarrow=True,
+                arrowhead=2,
+                arrowsize=1,
+                arrowwidth=2,
+                arrowcolor="black",
+                ax=70,
+                ay=0,  # Add a negative value to create a gap between arrow and point
+                standoff=5  # Add standoff to increase the gap between text and arrow
+            )
+
+        return fig
+    
+    
     helicon.shiny.image_select(
         id="display_map_side_projections",
         label=map_side_projection_title,
@@ -387,6 +445,7 @@ with ui.div(style="max-height: 80vh; overflow-y: auto;"):
         justification="left",
         enable_selection=False
     )
+
 
     @render.ui
     @reactive.event(input.show_gallery_print_button)
@@ -406,6 +465,7 @@ with ui.div(style="max-height: 80vh; overflow-y: auto;"):
                         """
             )
 
+    
 ui.HTML(
     "<i><p>Developed by the <a href='https://jiang.bio.purdue.edu/HelicalProjection' target='_blank'>Jiang Lab</a>. Report issues to <a href='https://github.com/jianglab/HelicalProjection/issues' target='_blank'>HelicalProjection@GitHub</a>.</p></i>"
 )
@@ -524,7 +584,7 @@ def rotate_selected_images():
         rotated = []
         for img in selected_images_original():
             ny, nx = img.shape
-            rotated.append(rotate(img, input.pre_rotation()))
+            rotated.append(rotate(img.copy(), input.pre_rotation()))
     else:
         rotated = selected_images_original()
     selected_images_rotated.set(rotated)
@@ -576,6 +636,8 @@ def get_map_from_url():
 def get_map_from_emdb():
     emdb_df_selected = display_emdb_dataframe.data_view(selected=True)
     req(len(emdb_df_selected) > 0)
+    map_side_projections_displayed.set([])
+    map_side_projections_with_alignments.set([])
     maps_tmp = []
     for i in range(len(emdb_df_selected)):
         row = emdb_df_selected.iloc[i]
@@ -585,7 +647,6 @@ def get_map_from_emdb():
         csym = int(row['csym'][1:]) if 'csym' in row and not pd.isna(row['csym']) else 1
         map_info = compute.MapInfo(emd_id=emdb_id, twist=twist, rise=rise, csym=csym, label=emdb_id)
         maps_tmp.append(map_info)
-    map_side_projections_displayed.set([])
     maps.set(maps_tmp)
     
  
@@ -662,7 +723,8 @@ def get_map_side_projections():
         ui.modal_show(m)
     
     map_side_projections_with_alignments.set(images)
-            
+
+
 @reactive.effect
 @reactive.event(map_side_projections_with_alignments, input.sort_map_side_projections_by)
 def update_map_side_projections_displayed():
@@ -682,6 +744,7 @@ def update_map_side_projections_displayed():
 
     map_side_projections_displayed.set(images_displayed)
     map_side_projection_labels.set(images_displayed_labels)
+
 
 @reactive.effect
 @reactive.event(input.map_xyz_projection_display_size)

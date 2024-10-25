@@ -38,7 +38,7 @@ class MapInfo:
 
 
 @helicon.cache(
-    cache_dir=str(helicon.cache_dir/"downloads"), expires_after=7, verbose=0
+    cache_dir=str(helicon.cache_dir / "helicalProjection"), expires_after=7, verbose=0
 )  # 7 days
 def get_images_from_url(url):
     url_final = get_direct_url(url)  # convert cloud drive indirect url to direct url
@@ -168,7 +168,7 @@ def estimate_diameter(data):
 
 
 
-@helicon.cache(expires_after=7, cache_dir=helicon.cache_dir/"helicalProjection", verbose=0)
+@helicon.cache(expires_after=7, cache_dir=helicon.cache_dir / "helicalProjection", verbose=0)
 def get_one_map_xyz_projects(map_info, length_z, map_projection_xyz_choices):
     label = map_info.label
     try:
@@ -201,7 +201,7 @@ def get_one_map_xyz_projects(map_info, length_z, map_projection_xyz_choices):
     return images, image_labels
 
 
-@helicon.cache(expires_after=7, cache_dir=helicon.cache_dir/"helicalProjection", verbose=0)
+@helicon.cache(expires_after=7, cache_dir=helicon.cache_dir / "helicalProjection", verbose=0)
 def symmetrize_project_align_one_map(map_info, image_query, image_query_label, image_query_apix, rescale_apix, length_xy_factor, match_sf):
     if abs(map_info.twist) < 1e-3:
         return None
