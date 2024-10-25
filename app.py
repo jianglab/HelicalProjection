@@ -600,6 +600,8 @@ def get_map_xyz_projections():
         p.set(message="Generating x/yz/ projections", detail="This may take a while ...")
         
         for mi, m in enumerate(maps()):
+            p.set(mi, message=f"{mi+1}/{len(maps())}: x/y/z projecting {m.label}")
+            
             tmp_images, tmp_image_labels = compute.get_one_map_xyz_projects(map_info=m, length_z=input.length_z(), map_projection_xyz_choices=input.map_projection_xyz_choices())
             images += tmp_images
             image_labels += tmp_image_labels
