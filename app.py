@@ -29,6 +29,8 @@ selected_images_rotated_cropped = reactive.value([])
 selected_images_title = reactive.value("Selected image:")
 selected_images_labels = reactive.value([])
 
+selected_image_diameter = reactive.value(0)
+
 emdb_df = reactive.value([])
 
 maps = reactive.value([])
@@ -141,9 +143,6 @@ with ui.sidebar(
                 @render.ui
                 @reactive.event(input.input_mode_maps)
                 def create_input_map_files_ui():
-                    maps.set([])
-                    map_xyz_projections.set([])
-                    map_side_projections_displayed.set([])
                     ret = []
                     if input.input_mode_maps() in ['upload', 'url']:
                         if input.input_mode_maps() == 'upload':
@@ -313,6 +312,14 @@ with ui.sidebar(
                     value=1.2,
                     step=0.1,
                 )
+                ui.input_numeric(
+                    "scale_range",
+                    "Search image scale (percent)",
+                    min=0,
+                    max=100,
+                    value=0,
+                    step=1,
+                )
 
             with ui.layout_columns(
                 col_widths=6, style="align-items: flex-end;"
@@ -388,14 +395,13 @@ with ui.div(style="max-height: 80vh; overflow-y: auto;"):
     @reactive.event(input.plot_scores, maps, map_side_projections_displayed,  map_side_projections_with_alignments)
     def generate_score_plot():
         req(input.plot_scores())
-        req(len(maps()))
         req(len(map_side_projections_displayed()))
         req(len(map_side_projections_with_alignments()))
 
         images_work = map_side_projections_with_alignments()
-        images_work = sorted(images_work, key=lambda x: -x[3])
+        images_work = sorted(images_work, key=lambda x: -x[4])
         
-        scores = [img[3] for img in images_work]
+        scores = [img[4] for img in images_work]
         labels = [img[-1] for img in images_work]
         
         import plotly.express as px
@@ -561,6 +567,7 @@ def update_selecte_image_diameter():
     ny =  max([img.shape[0] for img in selected_images_rotated()])
     diameter = max([compute.estimate_diameter(data=img) for img in selected_images_rotated()])
     crop_size = int(diameter * 2 + 2)//4*4
+    selected_image_diameter.set(diameter)
     ui.update_numeric("vertical_crop_size", value=crop_size, max=ny)
 
 
@@ -588,7 +595,6 @@ def rotate_selected_images():
     else:
         rotated = selected_images_original()
     selected_images_rotated.set(rotated)
-    map_side_projections_displayed.set([])
 
 
 @reactive.effect
@@ -636,8 +642,6 @@ def get_map_from_url():
 def get_map_from_emdb():
     emdb_df_selected = display_emdb_dataframe.data_view(selected=True)
     req(len(emdb_df_selected) > 0)
-    map_side_projections_displayed.set([])
-    map_side_projections_with_alignments.set([])
     maps_tmp = []
     for i in range(len(emdb_df_selected)):
         row = emdb_df_selected.iloc[i]
@@ -654,6 +658,7 @@ def get_map_from_emdb():
 @reactive.event(maps, input.length_z, input.map_projection_xyz_choices)
 def get_map_xyz_projections():
     req(len(maps()))
+    map_xyz_projections.set([])
     images = []
     image_labels = []
 
@@ -682,6 +687,12 @@ def get_map_side_projections():
     rescale_apix = input.rescale_apix()
     length_xy_factor = input.length_xy()
     match_sf = input.match_sf()
+    scale_range = input.scale_range()/100
+
+    ny, nx = image_query.shape
+    arc = np.sqrt((nx/2*0.8)**2 + selected_image_diameter()**2/4)
+    angle_range = min(2, round(90 - np.rad2deg(np.acos(ny/2/arc)), 1))
+    print(f"{image_query.shape=}\t{selected_image_diameter()=}\t{angle_range=}")
     
     images = []
     with ui.Progress(min=0, max=len(maps())) as p:
@@ -694,9 +705,9 @@ def get_map_side_projections():
                 twist_zeros.append(m.label)
                 continue
 
-            p.set(mi, message=f"{mi+1}/{len(maps())}: symmetrizing/projecting {m.label}")
+            p.set(mi, message=f"{mi+1}/{len(maps())}: symmetrizing/projecting/matching {m.label}")
 
-            result = compute.symmetrize_project_align_one_map(m, image_query, image_query_label, image_query_apix, rescale_apix, length_xy_factor, match_sf)
+            result = compute.symmetrize_project_align_one_map(m, image_query, image_query_label, image_query_apix, rescale_apix, length_xy_factor, match_sf, angle_range, scale_range)
 
             if result is None:
                 failed.append(m.label)
@@ -731,14 +742,14 @@ def update_map_side_projections_displayed():
     req(len(map_side_projections_with_alignments()))
     images_work = map_side_projections_with_alignments()
     if input.sort_map_side_projections_by() == "similarity score":
-        images_work = sorted(images_work, key=lambda x: -x[3])
+        images_work = sorted(images_work, key=lambda x: -x[4])
     
     images_displayed = []
     images_displayed_labels = []
     for i, image in enumerate(images_work):
-        flip, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving, image_query_label, proj, proj_label = image
+        flip, scale, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving, image_query_label, proj, proj_label = image
         images_displayed.append(aligned_image_moving)
-        images_displayed_labels.append(f"{image_query_label}: {'vflip|' if flip else ''}{rotation_angle:.1f}°")
+        images_displayed_labels.append(f"{image_query_label}:{' vflip ' if flip else ''}{' '+str(round(scale,3)) if scale!=1 else ''}{' '+str(round(rotation_angle,1))}°")
         images_displayed.append(proj)
         images_displayed_labels.append(f"{proj_label}: score={similarity_score:.3f}")
 
@@ -755,3 +766,4 @@ def update_map_xyz_projection_display_size():
 @reactive.event(input.map_side_projection_vertical_display_size)
 def update_map_side_projection_vertical_display_size():
     map_side_projection_vertical_display_size.set(input.map_side_projection_vertical_display_size())
+ 

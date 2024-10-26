@@ -162,8 +162,7 @@ def estimate_diameter(data):
     (amp, center, sigma, background), _ = curve_fit(
         gaussian, x, y, bounds=(lower_bounds, upper_bounds)
     )
-    # diameter = (abs(center) + sigma*1.731) *2   # exp(-1.731**2) = 0.05
-    diameter = sigma * 1.731 * 2  # exp(-1.731**2) = 0.05
+    diameter = sigma * 1.731  # exp(-1.731**2) = 0.05
     return diameter  # pixel    
 
 
@@ -202,7 +201,7 @@ def get_one_map_xyz_projects(map_info, length_z, map_projection_xyz_choices):
 
 
 @helicon.cache(expires_after=7, cache_dir=helicon.cache_dir / "helicalProjection", verbose=0)
-def symmetrize_project_align_one_map(map_info, image_query, image_query_label, image_query_apix, rescale_apix, length_xy_factor, match_sf):
+def symmetrize_project_align_one_map(map_info, image_query, image_query_label, image_query_apix, rescale_apix, length_xy_factor, match_sf, angle_range, scale_range):
     if abs(map_info.twist) < 1e-3:
         return None
     
@@ -254,6 +253,6 @@ def symmetrize_project_align_one_map(map_info, image_query, image_query_label, i
     if match_sf:
         proj = helicon.match_structural_factors(data=proj, apix=new_apix, data_target=image_query, apix_target=new_apix)
         
-    flip, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving = helicon.align_images(image_moving=image_query, image_ref=proj, angle_range=15, check_polarity=True, check_flip=True, return_aligned_moving_image=True) 
+    flip, scale, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving = helicon.align_images(image_moving=image_query, image_ref=proj, scale_range=scale_range, angle_range=angle_range, check_polarity=True, check_flip=True, return_aligned_moving_image=True) 
 
-    return (flip, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving, image_query_label, proj, label)
+    return (flip, scale, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving, image_query_label, proj, label)
