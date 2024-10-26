@@ -153,16 +153,17 @@ def estimate_diameter(data):
     y = np.max(data, axis=1)
     n = len(y)
     x = np.arange(n) - n // 2
-    lower_bounds = [0, -n // 2, 0, min(y)]
-    upper_bounds = [max(y), n // 2, n // 2, max(y)]
+    lower_bounds = [     0, -n // 2,      0, min(y)]
+    upper_bounds = [max(y),  n // 2, n // 2, max(y)]
 
     def gaussian(x, amp, center, sigma, background):
-        return amp * np.exp(-(((x - center) / sigma) ** 2)) + background
+        return amp * np.exp(-np.power((x - center) / sigma, 2)) + background
 
     (amp, center, sigma, background), _ = curve_fit(
         gaussian, x, y, bounds=(lower_bounds, upper_bounds)
     )
-    diameter = sigma * 1.731  # exp(-1.731**2) = 0.05
+    #diameter = sigma * 1.731  # exp(-1.731**2) = 0.05
+    diameter = sigma * 2.146  # exp(-2.146**2) = 0.01
     return diameter  # pixel    
 
 

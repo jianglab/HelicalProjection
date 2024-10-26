@@ -317,7 +317,7 @@ with ui.sidebar(
                     "Search image scale (percent)",
                     min=0,
                     max=100,
-                    value=0,
+                    value=5,
                     step=1,
                 )
 
@@ -692,7 +692,6 @@ def get_map_side_projections():
     ny, nx = image_query.shape
     arc = np.sqrt((nx/2*0.8)**2 + selected_image_diameter()**2/4)
     angle_range = min(2, round(90 - np.rad2deg(np.arccos(ny/2/arc)), 1))
-    print(f"{image_query.shape=}\t{selected_image_diameter()=}\t{angle_range=}")
     
     images = []
     with ui.Progress(min=0, max=len(maps())) as p:
@@ -748,8 +747,10 @@ def update_map_side_projections_displayed():
     images_displayed_labels = []
     for i, image in enumerate(images_work):
         flip, scale, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving, image_query_label, proj, proj_label = image
+        scale = round(scale, 3)
+        rotation_angle = round(rotation_angle, 1)
         images_displayed.append(aligned_image_moving)
-        images_displayed_labels.append(f"{image_query_label}:{' vflip ' if flip else ''}{' '+str(round(scale,3)) if scale!=1 else ''}{' '+str(round(rotation_angle,1))}°")
+        images_displayed_labels.append(f"{image_query_label}:{' vflip' if flip else ''}{' '+str(scale) if scale!=1 else ''}{' '+str(rotation_angle)}°")
         images_displayed.append(proj)
         images_displayed_labels.append(f"{proj_label}: score={similarity_score:.3f}")
 
@@ -766,4 +767,3 @@ def update_map_xyz_projection_display_size():
 @reactive.event(input.map_side_projection_vertical_display_size)
 def update_map_side_projection_vertical_display_size():
     map_side_projection_vertical_display_size.set(input.map_side_projection_vertical_display_size())
- 
