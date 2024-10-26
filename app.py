@@ -691,7 +691,7 @@ def get_map_side_projections():
 
     ny, nx = image_query.shape
     arc = np.sqrt((nx/2*0.8)**2 + selected_image_diameter()**2/4)
-    angle_range = min(2, round(90 - np.rad2deg(np.acos(ny/2/arc)), 1))
+    angle_range = min(2, round(90 - np.rad2deg(np.arccos(ny/2/arc)), 1))
     print(f"{image_query.shape=}\t{selected_image_diameter()=}\t{angle_range=}")
     
     images = []
