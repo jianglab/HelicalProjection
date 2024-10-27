@@ -31,6 +31,7 @@ selected_images_labels = reactive.value([])
 
 selected_image_diameter = reactive.value(0)
 
+emdb_df_original = reactive.value([])
 emdb_df = reactive.value([])
 
 maps = reactive.value([])
@@ -132,19 +133,23 @@ with ui.sidebar(
                 
         with ui.nav_panel("Input 3D Maps"):
             with ui.div(id="input_map_files", style="display: flex; flex-direction: column; align-items: flex-start;"):
-                ui.input_radio_buttons(
-                    "input_mode_maps",
-                    "How to obtain the 3D maps:",
-                    choices=["upload", "url", "amyloid_atlas", "EMDB-helical", "EMDB"],
-                    selected="url",
-                    inline=True,
-                )
+                with ui.div(style="display: flex; flex-direction: row; justify-content: space-between; align-items: flex-end; align-items: center;"):
+                    ui.input_radio_buttons(
+                        "input_mode_maps",
+                        "How to obtain the 3D maps:",
+                        choices=["upload", "url", "amyloid_atlas", "EMDB-helical", "EMDB"],
+                        selected="url",
+                        inline=True,
+                    )
 
                 @render.ui
                 @reactive.event(input.input_mode_maps)
                 def create_input_map_files_ui():
+                    ui.remove_ui(selector="#select_all_entries")
+
                     ret = []
                     if input.input_mode_maps() in ['upload', 'url']:
+                        
                         if input.input_mode_maps() == 'upload':
                             ret.append(
                                 ui.input_file(
@@ -184,8 +189,11 @@ with ui.sidebar(
                             emd_ids = emdb.emd_ids
                             cols = ["emdb_id", "pdb", "resolution", "title"]
                         df = emdb.meta.loc[emdb.meta["emd_id"].isin(emd_ids)]
+                        df["resolution"] = df["resolution"].astype(float)
+                        df["twist"] = df["twist"].astype(float)
+                        df["rise"] = df["rise"].astype(float)
                         df = df[cols].round(3)
-                        emdb_df.set(df)
+                        emdb_df_original.set(df)
 
                     return ret
                 
@@ -193,6 +201,16 @@ with ui.sidebar(
                     @render.data_frame
                     @reactive.event(emdb_df, input.show_pdb, input.show_twist_star)
                     def display_emdb_dataframe():
+                        ui.remove_ui(selector="#select_all_entries")
+                        ui.insert_ui(
+                            selector="#input_mode_maps",
+                            ui=ui.input_action_button(
+                                "select_all_entries",
+                                label="Select all entries",
+                                width="150px"
+                            ),
+                            where="afterEnd"
+                        )
                         df = emdb_df()
                         if not input.show_pdb():
                             cols = [col for col in df.columns if col != "pdb"]
@@ -260,16 +278,15 @@ with ui.sidebar(
                 )
 
                 ui.input_checkbox(
-                    "rescale_apix", "Resample to image pixel size", value=True
-                )
-
-                ui.input_checkbox(
-                    "match_sf", "Apply matched-filter", value=False
-                )
-
-                ui.input_checkbox(
                     "show_pdb", "Show PDB ids in EMDB table", value=False
                 )
+
+                with ui.tooltip(id="show_curated_helical_parameters_tooltip"):
+                    ui.input_checkbox(
+                        "use_curated_helical_parameters", "Use curated helical parameters", value=True
+                    )
+
+                    "When checked, the helical parameters will be updated using the curated values available at https://github.com/jianglab/EMDB_helical_parameter_curation"
 
                 with ui.tooltip(id="show_twist_star_tooltip"):
                     ui.input_checkbox("show_twist_star", "Show twist* in EMDB table", value=True)
@@ -325,9 +342,18 @@ with ui.sidebar(
                 col_widths=6, style="align-items: flex-end;"
             ):
                 ui.input_checkbox(
+                    "rescale_apix",
+                    "Resample to image pixel size", 
+                    value=True
+                )
+                ui.input_checkbox(
+                    "match_sf", 
+                    "Apply matched-filter", 
+                    value=False
+                )
+                ui.input_checkbox(
                     "show_gallery_print_button", "Show image gallery print button", value=False
                 )
-
                 ui.input_checkbox(
                     "plot_scores", "Plot matching scores", value=True
                 )
@@ -391,56 +417,97 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
 
 
 with ui.div(style="max-height: 80vh; overflow-y: auto;"):
-    @render_plotly
-    @reactive.event(input.plot_scores, maps, map_side_projections_displayed,  map_side_projections_with_alignments)
-    def generate_score_plot():
-        req(input.plot_scores())
-        req(len(map_side_projections_displayed()))
-        req(len(map_side_projections_with_alignments()))
+    with ui.div(id="div_score_plot", style="display: flex; flex-direction: row; justify-content: space-between; align-items: center;"):
+        @render_plotly
+        @reactive.event(input.plot_scores, maps, map_side_projections_displayed,  map_side_projections_with_alignments)
+        def generate_score_plot():
+            req(input.plot_scores())
+            req(len(map_side_projections_displayed())>1)
+            req(len(map_side_projections_with_alignments())>1)
 
-        images_work = map_side_projections_with_alignments()
-        images_work = sorted(images_work, key=lambda x: -x[4])
-        
-        scores = [img[4] for img in images_work]
-        labels = [img[-1] for img in images_work]
-        
-        import plotly.express as px
-        
-        fig = px.scatter(
-            x=range(1, len(scores)+1),
-            y=scores,
-            hover_name=labels,
-            labels={'x': 'Rank', 'y': 'Similarity Score'},
-        )
-        
-        fig.update_traces(
-            hovertemplate='<b>%{hovertext}</b><br>Score: %{y:.3f}<br>Rank: %{x}'
-        )
-        
-        fig.update_layout(
-            xaxis_title='Rank',
-            yaxis_title='Similarity Score',
-            showlegend=False
-        )
-        
-        if len(labels) > 0:
-            fig.add_annotation(
-                x=1,
-                y=scores[0],
-                text=labels[0],
-                yanchor='middle',
-                showarrow=True,
-                arrowhead=2,
-                arrowsize=1,
-                arrowwidth=2,
-                arrowcolor="black",
-                ax=70,
-                ay=0,  # Add a negative value to create a gap between arrow and point
-                standoff=5  # Add standoff to increase the gap between text and arrow
+            images_work = map_side_projections_with_alignments()
+            images_work = sorted(images_work, key=lambda x: -x[4])
+            
+            scores = [img[4] for img in images_work]
+            labels = [img[-1] for img in images_work]
+            try:
+                titles = [""] * len(labels)
+                for li, label in enumerate(labels):
+                    if label in emdb_df().emdb_id.values:
+                        mask = emdb_df()["emdb_id"] ==  label
+                        titles[li] = str(emdb_df().loc[mask, "title"].values[0])
+            except Exception as e:
+                print(e)
+                titles = None
+            
+            import plotly.express as px
+            
+            fig = px.scatter(
+                x=range(1, len(scores)+1),
+                y=scores,
+                hover_name=labels,
+                hover_data=dict(titles=titles),
+                labels={'x': 'Rank', 'y': 'Similarity Score'},
             )
+            
+            fig.update_traces(
+                hovertemplate='<b>%{hovertext}</b><br><i>%{customdata}</i><br>Score: %{y:.3f}<br>Rank: %{x}'
+            )
+            
+            if len(labels) > 0:
+                fig.add_annotation(
+                    x=1,
+                    y=scores[0],
+                    text=labels[0],
+                    yanchor='middle',
+                    showarrow=True,
+                    arrowhead=2,
+                    arrowsize=1,
+                    arrowwidth=2,
+                    arrowcolor="black",
+                    ax=70,
+                    ay=0,
+                    standoff=5
+                )
 
-        return fig
-    
+            fig.update_layout(
+                xaxis_title='Rank',
+                yaxis_title='Similarity Score',
+                showlegend=False,
+                autosize=True,
+                width=None
+            )
+            
+            return fig
+
+        @reactive.effect
+        @reactive.event(map_side_projections_with_alignments)
+        def generate_ui_select_top_n():
+            ui.remove_ui(selector="#div_select_top_n")
+            req(len(map_side_projections_with_alignments())>1)
+            selector_ui = ui.div( 
+                ui.input_numeric(
+                    "select_top_n",
+                    "Number of top matches:",
+                    min=0,
+                    value=10,
+                    width="150px"
+                ),
+
+                ui.input_action_button(
+                    "select_top_n_button",
+                    "Select"
+                ),
+
+                id="div_select_top_n"
+
+            )
+            ui.remove_ui(selector="#div_select_top_n")
+            ui.insert_ui(
+                selector="#div_score_plot",
+                ui=selector_ui,
+                where="beforeEnd"
+            )
     
     helicon.shiny.image_select(
         id="display_map_side_projections",
@@ -639,9 +706,40 @@ def get_map_from_url():
 
 
 @reactive.effect
+@reactive.event(emdb_df_original, input.use_curated_helical_parameters)
+def update_helical_parameters():
+    req(len(emdb_df_original()))
+    if input.use_curated_helical_parameters():
+        url = "https://raw.githubusercontent.com/jianglab/EMDB_helical_parameter_curation/refs/heads/main/EMDB_validation.csv"
+        try:
+            df_original = emdb_df_original()
+            df_curated = pd.read_csv(url)
+            df_curated = df_curated[df_curated['emdb_id'].isin(df_original['emdb_id'])]
+            df_curated = df_curated[['emdb_id', 'curated_twist (°)', 'curated_rise (Å)', 'curated_csym']]
+            df_updated = df_original.copy()
+            df_updated = df_updated.merge(
+                df_curated,
+                on='emdb_id',
+                how='left',
+                suffixes=('', '_curated')
+            )
+            df_updated['twist'] = df_updated['curated_twist (°)'].combine_first(df_updated['twist']).astype(float)
+            df_updated['rise'] = df_updated['curated_rise (Å)'].combine_first(df_updated['rise']).astype(float)
+            df_updated['csym'] = df_updated['curated_csym'].combine_first(df_updated['csym'])
+            df_updated = df_updated[df_original.columns]
+            emdb_df.set(df_updated)
+        except Exception as e:
+             print(str(e))
+             emdb_df.set(emdb_df_original())
+    else:
+        emdb_df.set(emdb_df_original())
+
+
+@reactive.effect
 def get_map_from_emdb():
-    emdb_df_selected = display_emdb_dataframe.data_view(selected=True)
-    req(len(emdb_df_selected) > 0)
+    selected_indices = list(display_emdb_dataframe.cell_selection()["rows"])
+    req(len(selected_indices))
+    emdb_df_selected = display_emdb_dataframe.data().iloc[selected_indices]
     maps_tmp = []
     for i in range(len(emdb_df_selected)):
         row = emdb_df_selected.iloc[i]
@@ -652,8 +750,8 @@ def get_map_from_emdb():
         map_info = compute.MapInfo(emd_id=emdb_id, twist=twist, rise=rise, csym=csym, label=emdb_id)
         maps_tmp.append(map_info)
     maps.set(maps_tmp)
-    
- 
+
+
 @reactive.effect
 @reactive.event(maps, input.length_z, input.map_projection_xyz_choices)
 def get_map_xyz_projections():
@@ -767,3 +865,30 @@ def update_map_xyz_projection_display_size():
 @reactive.event(input.map_side_projection_vertical_display_size)
 def update_map_side_projection_vertical_display_size():
     map_side_projection_vertical_display_size.set(input.map_side_projection_vertical_display_size())
+
+@reactive.effect
+@reactive.event(input.select_all_entries)
+async def select_all_entries():
+    req(len(emdb_df()))
+    df = display_emdb_dataframe.data_view()
+    row_indces = tuple(range(len(df)))
+    cols = tuple([i for i in range(len(df.columns))])
+    # {'type': 'row', 'rows': (0, 1), 'cols': (0, 1, 2, 3, 4, 5, 6)}
+    selection = dict(type="row", rows=row_indces, cols=cols)
+    await display_emdb_dataframe.update_cell_selection(selection)
+
+
+@reactive.effect
+@reactive.event(input.select_top_n_button)
+async def update_selected_maps_from_score_plot():
+    req(len(map_side_projections_with_alignments()))
+    images_work = map_side_projections_with_alignments()
+    images_work = sorted(images_work, key=lambda x: -x[4])
+    selected_map_ids = [image[-1] for image in images_work[:input.select_top_n()]]
+    df = display_emdb_dataframe.data_view()
+    row_indces = df["emdb_id"].isin(selected_map_ids)
+    row_indces = tuple([ri for ri, r in enumerate(row_indces) if r])
+    cols = tuple([i for i in range(len(df.columns))])
+    # {'type': 'row', 'rows': (0, 1), 'cols': (0, 1, 2, 3, 4, 5, 6)}
+    selection = dict(type="row", rows=row_indces, cols=cols)
+    await display_emdb_dataframe.update_cell_selection(selection)
