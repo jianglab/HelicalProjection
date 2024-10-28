@@ -31,8 +31,8 @@ selected_images_labels = reactive.value([])
 
 selected_image_diameter = reactive.value(0)
 
-emdb_df_original = reactive.value([])
-emdb_df = reactive.value([])
+emdb_df_original = reactive.value(None)
+emdb_df = reactive.value(None)
 
 maps = reactive.value([])
 map_xyz_projections = reactive.value([])
@@ -193,6 +193,8 @@ with ui.sidebar(
                         df["twist"] = df["twist"].astype(float)
                         df["rise"] = df["rise"].astype(float)
                         df = df[cols].round(3)
+                        df["rank"] = np.nan
+                        df = df[["rank"] + cols]
                         emdb_df_original.set(df)
 
                     return ret
@@ -229,7 +231,7 @@ with ui.sidebar(
                             cols = df.columns.tolist()
                             twist_index = cols.index('twist')
                             cols.insert(twist_index, 'twist*')
-                            df['twist*'] = twist_star                            
+                            df['twist*'] = np.round(twist_star, 3)                            
                             df = df[cols]
                         return render.DataGrid(
                             df,
@@ -562,6 +564,7 @@ def get_image_from_upload():
             footer=None,
         )
         ui.modal_show(m)
+        return
     images_all.set(data)
     image_size.set(min(data.shape))
     image_apix.set(apix)
@@ -585,6 +588,7 @@ def get_images_from_url():
             footer=None,
         )
         ui.modal_show(m)
+        return
     images_all.set(data)
     image_size.set(min(data.shape))
     image_apix.set(apix)
@@ -708,7 +712,7 @@ def get_map_from_url():
 @reactive.effect
 @reactive.event(emdb_df_original, input.use_curated_helical_parameters)
 def update_helical_parameters():
-    req(len(emdb_df_original()))
+    req(emdb_df_original() is not None)
     if input.use_curated_helical_parameters():
         url = "https://raw.githubusercontent.com/jianglab/EMDB_helical_parameter_curation/refs/heads/main/EMDB_validation.csv"
         try:
@@ -723,8 +727,8 @@ def update_helical_parameters():
                 how='left',
                 suffixes=('', '_curated')
             )
-            df_updated['twist'] = df_updated['curated_twist (°)'].combine_first(df_updated['twist']).astype(float)
-            df_updated['rise'] = df_updated['curated_rise (Å)'].combine_first(df_updated['rise']).astype(float)
+            df_updated['twist'] = df_updated['curated_twist (°)'].combine_first(df_updated['twist']).astype(float).round(3)
+            df_updated['rise'] = df_updated['curated_rise (Å)'].combine_first(df_updated['rise']).astype(float).round(3)
             df_updated['csym'] = df_updated['curated_csym'].combine_first(df_updated['csym'])
             df_updated = df_updated[df_original.columns]
             emdb_df.set(df_updated)
@@ -740,6 +744,7 @@ def get_map_from_emdb():
     selected_indices = list(display_emdb_dataframe.cell_selection()["rows"])
     req(len(selected_indices))
     emdb_df_selected = display_emdb_dataframe.data().iloc[selected_indices]
+    emdb_df_selected = emdb_df_selected.sort_values(by=display_emdb_dataframe.data_view().columns.tolist())
     maps_tmp = []
     for i in range(len(emdb_df_selected)):
         row = emdb_df_selected.iloc[i]
@@ -840,18 +845,28 @@ def update_map_side_projections_displayed():
     images_work = map_side_projections_with_alignments()
     if input.sort_map_side_projections_by() == "similarity score":
         images_work = sorted(images_work, key=lambda x: -x[4])
+
+    df = emdb_df()
+    if df is not None:
+        df["rank"] = np.nan
     
     images_displayed = []
     images_displayed_labels = []
     for i, image in enumerate(images_work):
         flip, scale, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving, image_query_label, proj, proj_label = image
+        if df is not None and proj_label in df["emdb_id"].values:
+            row_index = df.index[df["emdb_id"] == proj_label][0]
+            title = str(df["title"].iloc[row_index])
+            df.loc[row_index, "rank"] = i+1
+        else:
+            title = ""
         scale = round(scale, 3)
         rotation_angle = round(rotation_angle, 1)
         images_displayed.append(aligned_image_moving)
         images_displayed_labels.append(f"{image_query_label}:{' vflip' if flip else ''}{' '+str(scale) if scale!=1 else ''}{' '+str(rotation_angle)}°")
         images_displayed.append(proj)
-        images_displayed_labels.append(f"{proj_label}: score={similarity_score:.3f}")
-
+        images_displayed_labels.append(f"{proj_label}: score={similarity_score:.3f}{' '+title if title else ''}")
+    emdb_df.set(df.copy())
     map_side_projections_displayed.set(images_displayed)
     map_side_projection_labels.set(images_displayed_labels)
 
@@ -865,6 +880,7 @@ def update_map_xyz_projection_display_size():
 @reactive.event(input.map_side_projection_vertical_display_size)
 def update_map_side_projection_vertical_display_size():
     map_side_projection_vertical_display_size.set(input.map_side_projection_vertical_display_size())
+
 
 @reactive.effect
 @reactive.event(input.select_all_entries)
@@ -882,13 +898,17 @@ async def select_all_entries():
 @reactive.event(input.select_top_n_button)
 async def update_selected_maps_from_score_plot():
     req(len(map_side_projections_with_alignments()))
-    images_work = map_side_projections_with_alignments()
-    images_work = sorted(images_work, key=lambda x: -x[4])
-    selected_map_ids = [image[-1] for image in images_work[:input.select_top_n()]]
+    df = display_emdb_dataframe.data()
+    req(len(df))
+    n = input.select_top_n()
+    await display_emdb_dataframe.update_sort([{"col": df.columns.get_loc("rank"), "desc": False}])
+    await display_emdb_dataframe.update_filter(
+        [
+            {"col": df.columns.get_loc("rank"), "value": (1, n)},
+        ]
+    )
     df = display_emdb_dataframe.data_view()
-    row_indces = df["emdb_id"].isin(selected_map_ids)
-    row_indces = tuple([ri for ri, r in enumerate(row_indces) if r])
+    row_indces = tuple(range(len(df)))
     cols = tuple([i for i in range(len(df.columns))])
-    # {'type': 'row', 'rows': (0, 1), 'cols': (0, 1, 2, 3, 4, 5, 6)}
     selection = dict(type="row", rows=row_indces, cols=cols)
     await display_emdb_dataframe.update_cell_selection(selection)
