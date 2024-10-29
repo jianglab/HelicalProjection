@@ -23,9 +23,9 @@ displayed_image_labels = reactive.value([])
 
 initial_selected_image_indices = reactive.value([0])
 selected_images_original = reactive.value([])
-selected_images_rotated = reactive.value([])
+selected_images_rotated_shifted = reactive.value([])
 selected_image_diameter = reactive.value(0)
-selected_images_rotated_cropped = reactive.value([])
+selected_images_rotated_shifted_cropped = reactive.value([])
 selected_images_title = reactive.value("Selected image:")
 selected_images_labels = reactive.value([])
 
@@ -213,6 +213,7 @@ with ui.sidebar(
                             ),
                             where="afterEnd"
                         )
+
                         return render.DataGrid(
                             data=emdb_df(),
                             selection_mode="rows",
@@ -335,6 +336,11 @@ with ui.sidebar(
                     value=False
                 )
                 ui.input_checkbox(
+                    "hide_query_image", 
+                    "Hide query image", 
+                    value=False
+                )
+                ui.input_checkbox(
                     "show_gallery_print_button", "Show image gallery print button", value=False
                 )
                 ui.input_checkbox(
@@ -349,7 +355,7 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
     helicon.shiny.image_select(
         id="display_selected_image",
         label=selected_images_title,
-        images=selected_images_rotated_cropped,
+        images=selected_images_rotated_shifted_cropped,
         image_labels=selected_images_labels,
         image_size=map_side_projection_vertical_display_size,
         justification="left",
@@ -614,32 +620,20 @@ def get_displayed_images():
 
 @reactive.effect
 @reactive.event(selected_images_original)
-def update_selecte_image_rotation():
+def update_selected_image_rotation_shift_diameter():
     req(len(selected_images_original()))
-    rotations = [compute.estimate_rotation(img) for img in selected_images_original()]
-    rotation = np.mean(rotations)
-    ui.update_numeric("pre_rotation", value=round(rotation, 1))
-
-
-@reactive.effect
-@reactive.event(selected_images_rotated)
-def update_selecte_image_diameter():
-    req(len(selected_images_rotated()))
-    ny =  max([img.shape[0] for img in selected_images_rotated()])
-    diameter = max([compute.estimate_diameter(data=img) for img in selected_images_rotated()])
+    
+    ny = int(np.max([img.shape[0] for img in selected_images_original()]))
+    tmp = np.array([compute.estimate_rotation_center_diameter(img) for img in selected_images_original()])
+    rotation = np.mean(tmp[:, 0])
+    shift_y = np.mean(tmp[:, 1])
+    diameter = np.max(tmp[:, 2])
     crop_size = int(diameter * 2 + 2)//4*4
+
     selected_image_diameter.set(diameter)
-    ui.update_numeric("vertical_crop_size", value=crop_size, max=ny)
-
-
-@reactive.effect
-@reactive.event(selected_images_rotated, input.vertical_crop_size)
-def update_selecte_image_shift():
-    req(len(selected_images_rotated()))
-    crop_size = input.vertical_crop_size()
-    shifts = [compute.estimate_diameter(data=img, return_center=True)[-1] for img in selected_images_rotated()]
-    shift_y = np.mean(shifts)
+    ui.update_numeric("pre_rotation", value=round(rotation, 1))
     ui.update_numeric("shift_y", value=shift_y, min=-crop_size//2, max=crop_size//2)
+    ui.update_numeric("vertical_crop_size", value=crop_size, max=ny)
 
 
 @reactive.effect
@@ -654,36 +648,35 @@ def update_selecte_images_orignal():
 
 
 @reactive.effect
-@reactive.event(selected_images_original, input.pre_rotation)
-def rotate_selected_images():
+@reactive.event(selected_images_original, input.pre_rotation, input.shift_y)
+def transform_selected_images():
     req(len(selected_images_original()))
     if input.pre_rotation!=0 or input.shift_y!=0:
         rotated = []
         for img in selected_images_original():
-            rotated.append(helicon.transform_image(image=img, rotation=input.pre_rotation()))
+            rotated.append(helicon.transform_image(image=img.copy(), rotation=input.pre_rotation(), post_translation=(input.shift_y(), 0)))
     else:
         rotated = selected_images_original()
-    selected_images_rotated.set(rotated)
+    selected_images_rotated_shifted.set(rotated)
 
 
 @reactive.effect
-@reactive.event(selected_images_rotated, input.shift_y, input.vertical_crop_size)
-def rotate_crop_selected_images():
-    req(len(selected_images_rotated()))
+@reactive.event(selected_images_rotated_shifted, input.vertical_crop_size)
+def crop_selected_images():
+    req(len(selected_images_rotated_shifted()))
     req(input.vertical_crop_size()>0)
     if input.vertical_crop_size()<32:
-        selected_images_rotated_cropped.set(selected_images_rotated)
+        selected_images_rotated_shifted_cropped.set(selected_images_rotated_shifted)
     else:
         d = int(input.vertical_crop_size())
-        shift_y = int(input.shift_y())
         cropped = []
-        for img in selected_images_rotated():
+        for img in selected_images_rotated_shifted():
             ny, nx = img.shape
             if d<ny:
-                cropped.append(helicon.crop_center(img, shape=(d, nx), center_offset=(shift_y, 0)))
+                cropped.append(helicon.crop_center(img, shape=(d, nx)))
             else:
                 cropped.append(img)
-        selected_images_rotated_cropped.set(cropped)
+        selected_images_rotated_shifted_cropped.set(cropped)
 
 
 @reactive.effect
@@ -803,8 +796,8 @@ def get_map_xyz_projections():
 @reactive.event(input.generate_projections)
 def get_map_side_projections():
     req(len(maps()))
-    req(len(selected_images_rotated_cropped()))
-    image_query = selected_images_rotated_cropped()[0]
+    req(len(selected_images_rotated_shifted_cropped()))
+    image_query = selected_images_rotated_shifted_cropped()[0]
     image_query_label = selected_images_labels()[0]
     image_query_apix = image_apix()
     rescale_apix = input.rescale_apix()
@@ -827,7 +820,7 @@ def get_map_side_projections():
                 twist_zeros.append(m.label)
                 continue
 
-            p.set(mi, message=f"{mi+1}/{len(maps())}: symmetrizing/projecting/matching {m.label}")
+            p.set(mi, message=f"{mi+1}/{len(maps())}: symmetrizing/projecting/matching {m.label}", detail=f"twist={m.twist}° rise={m.rise}Å csym=C{m.csym}")
 
             result = compute.symmetrize_project_align_one_map(m, image_query, image_query_label, image_query_apix, rescale_apix, length_xy_factor, match_sf, angle_range, scale_range)
 
@@ -859,7 +852,7 @@ def get_map_side_projections():
 
 
 @reactive.effect
-@reactive.event(map_side_projections_with_alignments, input.sort_map_side_projections_by)
+@reactive.event(map_side_projections_with_alignments, input.sort_map_side_projections_by, input.hide_query_image)
 def update_map_side_projections_displayed():
     req(len(map_side_projections_with_alignments()))
     images_work = map_side_projections_with_alignments()
@@ -882,10 +875,11 @@ def update_map_side_projections_displayed():
             title = ""
         scale = round(scale, 3)
         rotation_angle = round(rotation_angle, 1)
-        images_displayed.append(aligned_image_moving)
-        images_displayed_labels.append(f"{image_query_label}:{' vflip' if flip else ''}{' '+str(scale) if scale!=1 else ''}{' '+str(rotation_angle)}°")
+        if not input.hide_query_image():
+            images_displayed.append(aligned_image_moving)
+            images_displayed_labels.append(f"{i+1}/{len(images_work)}: {image_query_label}|{'|vflip' if flip else ''}{'|'+str(scale) if scale!=1 else ''}{'|'+str(rotation_angle)}°")
         images_displayed.append(proj)
-        images_displayed_labels.append(f"{proj_label}: score={similarity_score:.3f}{' '+title if title else ''}")
+        images_displayed_labels.append(f"{i+1}/{len(images_work)}: {proj_label}|score={similarity_score:.3f}{'|'+title if title else ''}")
     map_side_projections_displayed.set(images_displayed)
     map_side_projection_labels.set(images_displayed_labels)
     if df is not None: emdb_df.set(df.copy())

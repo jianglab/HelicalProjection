@@ -128,52 +128,32 @@ def get_file_size(url):
     else:
         return None
     
+def estimate_rotation_center_diameter(data):
+  from skimage.filters import threshold_otsu
+  from skimage.measure import label, regionprops
+  from skimage.morphology import closing
+  import helicon
 
-def estimate_rotation(data, angle_range=30):
-    from scipy.optimize import minimize_scalar
+  thresh = threshold_otsu(data)
+  bw = closing(data > thresh)
+  label_image = label(bw)
+  props = regionprops(label_image=label_image, intensity_image=data)
+  props.sort(key=lambda x: x.area, reverse=True)
+  angle = np.rad2deg(props[0].orientation) + 90   # relative to +x axis, counter-clockwise
+  if abs(angle)>90: angle -= 180
+  rotation = helicon.set_to_periodic_range(angle, min=-180, max=180)
 
-    data_work = helicon.threshold_data(data, thresh_fraction=0.2)
-
-    def rotation_score(angle):
-        rotated = helicon.transform_image(image=data_work, rotation=angle)
-        rotated_yflip = rotated[:, ::-1]
-        rotated_xflip = rotated[::-1, :]
-        rotated_yxflip = rotated[::-1, ::-1]
-
-        from itertools import combinations
-        pairs = list(combinations([rotated, rotated_yflip, rotated_xflip, rotated_yxflip], 2))
-        score = -np.sum([helicon.cross_correlation_coefficient(*p) for p in pairs])
-        return score
-
-    result = minimize_scalar(
-        rotation_score, bounds=(-angle_range, angle_range), method="bounded"
-    )
-    return result.x
-
- 
-def estimate_diameter(data, return_center=False):
-    from scipy.optimize import curve_fit
-
-    y = np.max(data, axis=1)
-    n = len(y)
-    x = np.arange(n) - n // 2
-    lower_bounds = [     0, -n // 2,      0, min(y)]
-    upper_bounds = [max(y),  n // 2, n // 2, max(y)]
-
-    def gaussian(x, amp, center, sigma, background):
-        return amp * np.exp(-np.power((x - center) / sigma, 2)) + background
-
-    (amp, center, sigma, background), _ = curve_fit(
-        gaussian, x, y, bounds=(lower_bounds, upper_bounds)
-    )
-    #diameter = sigma * 1.731  # exp(-1.731**2) = 0.05
-    diameter = sigma * 2.146  # exp(-2.146**2) = 0.01
-    if return_center:
-        return diameter, center  # pixel    
-    else:
-        return diameter  # pixel    
-
-
+  data_rotated = helicon.transform_image(image=data.copy(), rotation=rotation)
+  bw = closing(data_rotated > thresh)
+  label_image = label(bw)
+  props = regionprops(label_image=label_image, intensity_image=data_rotated)
+  props.sort(key=lambda x: x.area, reverse=True)
+  minr, minc, maxr, maxc = props[0].bbox
+  diameter = maxr-minr+1
+  center = props[0].centroid
+  shift_y = data.shape[0]//2 - center[0]
+  
+  return rotation, shift_y, diameter
 
 @helicon.cache(expires_after=7, cache_dir=helicon.cache_dir / "helicalProjection", verbose=0)
 def get_one_map_xyz_projects(map_info, length_z, map_projection_xyz_choices):
