@@ -20,6 +20,11 @@ class MapInfo:
         self.twist = twist
         self.rise = rise
         self.csym = csym
+
+    def __repr__(self):
+        return (f"MapInfo(label={self.label}, emd_id={self.emd_id}, "
+                f"twist={self.twist}, rise={self.rise}, csym={self.csym}, "
+                f"apix={self.apix})")
         
     def get_data(self):
         if self.data is not None:
@@ -126,12 +131,11 @@ def get_file_size(url):
 
 def estimate_rotation(data, angle_range=30):
     from scipy.optimize import minimize_scalar
-    from skimage.transform import rotate
 
     data_work = helicon.threshold_data(data, thresh_fraction=0.2)
 
     def rotation_score(angle):
-        rotated = rotate(data_work, angle)
+        rotated = helicon.transform_image(image=data_work, rotation=angle)
         rotated_yflip = rotated[:, ::-1]
         rotated_xflip = rotated[::-1, :]
         rotated_yxflip = rotated[::-1, ::-1]
@@ -147,7 +151,7 @@ def estimate_rotation(data, angle_range=30):
     return result.x
 
  
-def estimate_diameter(data):
+def estimate_diameter(data, return_center=False):
     from scipy.optimize import curve_fit
 
     y = np.max(data, axis=1)
@@ -164,7 +168,10 @@ def estimate_diameter(data):
     )
     #diameter = sigma * 1.731  # exp(-1.731**2) = 0.05
     diameter = sigma * 2.146  # exp(-2.146**2) = 0.01
-    return diameter  # pixel    
+    if return_center:
+        return diameter, center  # pixel    
+    else:
+        return diameter  # pixel    
 
 
 

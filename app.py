@@ -29,8 +29,6 @@ selected_images_rotated_cropped = reactive.value([])
 selected_images_title = reactive.value("Selected image:")
 selected_images_labels = reactive.value([])
 
-selected_image_diameter = reactive.value(0)
-
 emdb_df_original = reactive.value(None)
 emdb_df = reactive.value(None)
 
@@ -193,7 +191,7 @@ with ui.sidebar(
                         df["twist"] = df["twist"].astype(float)
                         df["rise"] = df["rise"].astype(float)
                         df = df[cols].round(3)
-                        df["rank"] = np.nan
+                        df["rank"] = np.inf
                         df = df[["rank"] + cols]
                         emdb_df_original.set(df)
 
@@ -201,9 +199,11 @@ with ui.sidebar(
                 
                 with ui.panel_conditional("input.input_mode_maps === 'amyloid_atlas' || input.input_mode_maps === 'EMDB-helical' || input.input_mode_maps === 'EMDB'"):
                     @render.data_frame
-                    @reactive.event(emdb_df, input.show_pdb, input.show_twist_star)
+                    @reactive.event(emdb_df)
                     def display_emdb_dataframe():
                         ui.remove_ui(selector="#select_all_entries")
+                        if emdb_df() is None or emdb_df().empty:
+                            return None
                         ui.insert_ui(
                             selector="#input_mode_maps",
                             ui=ui.input_action_button(
@@ -213,34 +213,15 @@ with ui.sidebar(
                             ),
                             where="afterEnd"
                         )
-                        df = emdb_df()
-                        if not input.show_pdb():
-                            cols = [col for col in df.columns if col != "pdb"]
-                            df = df[cols]
-                        if input.show_twist_star and "twist" in df.columns and "rise" in df.columns:
-                            rise = df["rise"].astype(float).abs()
-                            twist_star = df["twist"].astype(float).abs()
-                            # 2sub1
-                            mask = (rise * 2 < 5) & (4.5 < rise * 2) & ((360 - twist_star * 2) < 90)
-                            mask |= (rise < 5) & (4.5 < rise) & (abs(360 - twist_star * 2) < 90)
-                            twist_star = twist_star.copy()
-                            twist_star[mask] = abs(360 - twist_star[mask] * 2)
-                            #3sub1
-                            mask = (rise * 3 < 5) & (4.5 < rise * 3) & (abs(360 - twist_star * 3) < 90)
-                            twist_star[mask] = abs(360 - twist_star[mask] * 3)                        
-                            cols = df.columns.tolist()
-                            twist_index = cols.index('twist')
-                            cols.insert(twist_index, 'twist*')
-                            df['twist*'] = np.round(twist_star, 3)                            
-                            df = df[cols]
                         return render.DataGrid(
-                            df,
+                            data=emdb_df(),
                             selection_mode="rows",
                             filters=True,
                             editable=True,
                             height="40vh",
                             width="100%"
                         )
+
                 
             with ui.div(style="max-height: 80vh; overflow-y: auto; display: flex; flex-direction: column; align-items: center;"):
                 helicon.shiny.image_select(
@@ -386,8 +367,17 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
         )
         
         ui.input_slider(
+            "shift_y",
+            "Vertical shift (pixel)",
+            min=-100,
+            max=100,
+            value=0,
+            step=1,
+        )
+
+        ui.input_slider(
             "vertical_crop_size",
-            "Crop vertical dimension (pixel)",
+            "Vertical crop (pixel)",
             min=32,
             max=256,
             value=0,
@@ -396,7 +386,7 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
         
         ui.input_slider(
             "map_side_projection_vertical_display_size",
-            "Map side projection image size (pixel)",
+            "Map side projection size (pixel)",
             min=32,
             max=1024,
             value=128,
@@ -643,6 +633,16 @@ def update_selecte_image_diameter():
 
 
 @reactive.effect
+@reactive.event(selected_images_rotated, input.vertical_crop_size)
+def update_selecte_image_shift():
+    req(len(selected_images_rotated()))
+    crop_size = input.vertical_crop_size()
+    shifts = [compute.estimate_diameter(data=img, return_center=True)[-1] for img in selected_images_rotated()]
+    shift_y = np.mean(shifts)
+    ui.update_numeric("shift_y", value=shift_y, min=-crop_size//2, max=crop_size//2)
+
+
+@reactive.effect
 @reactive.event(input.select_image)
 def update_selecte_images_orignal():
     selected_images_original.set(
@@ -657,31 +657,30 @@ def update_selecte_images_orignal():
 @reactive.event(selected_images_original, input.pre_rotation)
 def rotate_selected_images():
     req(len(selected_images_original()))
-    if input.pre_rotation!=0:
-        from skimage.transform import rotate
+    if input.pre_rotation!=0 or input.shift_y!=0:
         rotated = []
         for img in selected_images_original():
-            ny, nx = img.shape
-            rotated.append(rotate(img.copy(), input.pre_rotation()))
+            rotated.append(helicon.transform_image(image=img, rotation=input.pre_rotation()))
     else:
         rotated = selected_images_original()
     selected_images_rotated.set(rotated)
 
 
 @reactive.effect
-@reactive.event(selected_images_rotated, input.vertical_crop_size)
+@reactive.event(selected_images_rotated, input.shift_y, input.vertical_crop_size)
 def rotate_crop_selected_images():
     req(len(selected_images_rotated()))
     req(input.vertical_crop_size()>0)
     if input.vertical_crop_size()<32:
         selected_images_rotated_cropped.set(selected_images_rotated)
     else:
-        d = input.vertical_crop_size()
+        d = int(input.vertical_crop_size())
+        shift_y = int(input.shift_y())
         cropped = []
         for img in selected_images_rotated():
             ny, nx = img.shape
             if d<ny:
-                cropped.append(helicon.crop_center(img, shape=(d, nx)))
+                cropped.append(helicon.crop_center(img, shape=(d, nx), center_offset=(shift_y, 0)))
             else:
                 cropped.append(img)
         selected_images_rotated_cropped.set(cropped)
@@ -710,17 +709,22 @@ def get_map_from_url():
 
 
 @reactive.effect
-@reactive.event(emdb_df_original, input.use_curated_helical_parameters)
-def update_helical_parameters():
-    req(emdb_df_original() is not None)
-    if input.use_curated_helical_parameters():
+@reactive.event(emdb_df_original, input.use_curated_helical_parameters, input.show_pdb, input.show_twist_star)
+def update_emdb_df():
+    df_original = emdb_df_original()
+    req(df_original is not None and not df_original.empty)
+    df_updated = df_original.copy()
+
+    if not input.show_pdb():
+        cols = [col for col in df_updated.columns if col != "pdb"]
+        df_updated = df_updated[cols]
+
+    if input.use_curated_helical_parameters() and "twist" in df_original and "rise" in df_original:
         url = "https://raw.githubusercontent.com/jianglab/EMDB_helical_parameter_curation/refs/heads/main/EMDB_validation.csv"
         try:
-            df_original = emdb_df_original()
             df_curated = pd.read_csv(url)
             df_curated = df_curated[df_curated['emdb_id'].isin(df_original['emdb_id'])]
             df_curated = df_curated[['emdb_id', 'curated_twist (°)', 'curated_rise (Å)', 'curated_csym']]
-            df_updated = df_original.copy()
             df_updated = df_updated.merge(
                 df_curated,
                 on='emdb_id',
@@ -731,23 +735,39 @@ def update_helical_parameters():
             df_updated['rise'] = df_updated['curated_rise (Å)'].combine_first(df_updated['rise']).astype(float).round(3)
             df_updated['csym'] = df_updated['curated_csym'].combine_first(df_updated['csym'])
             df_updated = df_updated[df_original.columns]
-            emdb_df.set(df_updated)
         except Exception as e:
              print(str(e))
-             emdb_df.set(emdb_df_original())
-    else:
-        emdb_df.set(emdb_df_original())
+    
+    if input.show_twist_star and "twist" in df_updated and "rise" in df_updated:
+        rise = df_updated["rise"].astype(float).abs()
+        twist_star = df_updated["twist"].astype(float).abs()
+        # 2sub1
+        mask = (rise * 2 < 5) & (4.5 < rise * 2) & ((360 - twist_star * 2) < 90)
+        mask |= (rise < 5) & (4.5 < rise) & (abs(360 - twist_star * 2) < 90)
+        twist_star = twist_star.copy()
+        twist_star[mask] = abs(360 - twist_star[mask] * 2)
+        #3sub1
+        mask = (rise * 3 < 5) & (4.5 < rise * 3) & (abs(360 - twist_star * 3) < 90)
+        twist_star[mask] = abs(360 - twist_star[mask] * 3)                        
+        cols = df_updated.columns.tolist()
+        twist_index = cols.index('twist')
+        cols.insert(twist_index, 'twist*')
+        df_updated['twist*'] = np.round(twist_star, 3)                            
+        df_updated = df_updated[cols]
+    
+    emdb_df.set(df_updated)
 
 
 @reactive.effect
+@reactive.event(display_emdb_dataframe.data_view, display_emdb_dataframe.cell_selection)
 def get_map_from_emdb():
-    selected_indices = list(display_emdb_dataframe.cell_selection()["rows"])
-    req(len(selected_indices))
-    emdb_df_selected = display_emdb_dataframe.data().iloc[selected_indices]
-    emdb_df_selected = emdb_df_selected.sort_values(by=display_emdb_dataframe.data_view().columns.tolist())
+    selected_indices_tmp = set(display_emdb_dataframe.cell_selection()["rows"])
+    req(len(selected_indices_tmp))
+    view_indices = display_emdb_dataframe.data_view().index
+    selected_indices = [i for i in view_indices if i in selected_indices_tmp]
+    emdb_df_selected = display_emdb_dataframe.data().iloc[display_emdb_dataframe.data().index[selected_indices]]
     maps_tmp = []
-    for i in range(len(emdb_df_selected)):
-        row = emdb_df_selected.iloc[i]
+    for i, row in emdb_df_selected.iterrows():    
         emdb_id = row['emdb_id']
         twist = row['twist'] if 'twist' in row and not pd.isna(row['twist']) else 0
         rise = row['rise'] if 'rise' in row and not pd.isna(row['rise']) else 0
@@ -848,7 +868,7 @@ def update_map_side_projections_displayed():
 
     df = emdb_df()
     if df is not None:
-        df["rank"] = np.nan
+        df["rank"] = np.inf
     
     images_displayed = []
     images_displayed_labels = []
@@ -866,9 +886,9 @@ def update_map_side_projections_displayed():
         images_displayed_labels.append(f"{image_query_label}:{' vflip' if flip else ''}{' '+str(scale) if scale!=1 else ''}{' '+str(rotation_angle)}°")
         images_displayed.append(proj)
         images_displayed_labels.append(f"{proj_label}: score={similarity_score:.3f}{' '+title if title else ''}")
-    emdb_df.set(df.copy())
     map_side_projections_displayed.set(images_displayed)
     map_side_projection_labels.set(images_displayed_labels)
+    if df is not None: emdb_df.set(df.copy())
 
 
 @reactive.effect
@@ -887,7 +907,7 @@ def update_map_side_projection_vertical_display_size():
 async def select_all_entries():
     req(len(emdb_df()))
     df = display_emdb_dataframe.data_view()
-    row_indces = tuple(range(len(df)))
+    row_indces = tuple(df.index)
     cols = tuple([i for i in range(len(df.columns))])
     # {'type': 'row', 'rows': (0, 1), 'cols': (0, 1, 2, 3, 4, 5, 6)}
     selection = dict(type="row", rows=row_indces, cols=cols)
