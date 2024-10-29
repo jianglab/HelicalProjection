@@ -392,7 +392,7 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
         
         ui.input_slider(
             "map_side_projection_vertical_display_size",
-            "Map side projection size (pixel)",
+            "Side projection display size (pixel)",
             min=32,
             max=1024,
             value=128,
@@ -713,6 +713,7 @@ def update_emdb_df():
         df_updated = df_updated[cols]
 
     if input.use_curated_helical_parameters() and "twist" in df_original and "rise" in df_original:
+        columns = df_updated.columns 
         url = "https://raw.githubusercontent.com/jianglab/EMDB_helical_parameter_curation/refs/heads/main/EMDB_validation.csv"
         try:
             df_curated = pd.read_csv(url)
@@ -727,7 +728,7 @@ def update_emdb_df():
             df_updated['twist'] = df_updated['curated_twist (°)'].combine_first(df_updated['twist']).astype(float).round(3)
             df_updated['rise'] = df_updated['curated_rise (Å)'].combine_first(df_updated['rise']).astype(float).round(3)
             df_updated['csym'] = df_updated['curated_csym'].combine_first(df_updated['csym'])
-            df_updated = df_updated[df_original.columns]
+            df_updated = df_updated[columns]
         except Exception as e:
              print(str(e))
     
