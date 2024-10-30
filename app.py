@@ -351,7 +351,7 @@ with ui.sidebar(
 title = "HelicalProjection: compare 2D images with helical structure projections"
 ui.h1(title, style="font-weight: bold;")
 
-with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; gap: 10px;"):
+with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; gap: 10px; margin-bottom: 0"):
     helicon.shiny.image_select(
         id="display_selected_image",
         label=selected_images_title,
@@ -416,7 +416,7 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
 
 with ui.div(style="max-height: 80vh; overflow-y: auto;"):
     with ui.div(id="div_score_plot", style="display: flex; flex-direction: row; justify-content: space-between; align-items: center;"):
-        @render_plotly
+        @render_plotly(width="85vw")
         @reactive.event(input.plot_scores, maps, map_side_projections_displayed,  map_side_projections_with_alignments)
         def generate_score_plot():
             req(input.plot_scores())
@@ -507,15 +507,16 @@ with ui.div(style="max-height: 80vh; overflow-y: auto;"):
                 where="beforeEnd"
             )
     
-    helicon.shiny.image_select(
-        id="display_map_side_projections",
-        label=map_side_projection_title,
-        images=map_side_projections_displayed,
-        image_labels=map_side_projection_labels,
-        image_size=map_side_projection_vertical_display_size,
-        justification="left",
-        enable_selection=False
-    )
+    with ui.div(style="max-height: 50vh; overflow-y: auto;"):
+        helicon.shiny.image_select(
+            id="display_map_side_projections",
+            label=map_side_projection_title,
+            images=map_side_projections_displayed,
+            image_labels=map_side_projection_labels,
+            image_size=map_side_projection_vertical_display_size,
+            justification="left",
+            enable_selection=False
+        )
 
 
     @render.ui
