@@ -746,9 +746,9 @@ def update_emdb_df():
         cols = df_updated.columns.tolist()
         twist_index = cols.index('twist')
         cols.insert(twist_index, 'twist*')
-        df_updated['twist*'] = np.round(twist_star, 3)                            
+        df_updated['twist*'] = np.round(twist_star, 3)
+        df_updated = df_updated.sort_values(by='twist*').reset_index()
         df_updated = df_updated[cols]
-        df_updated = df_updated.sort_values(by='twist*')
     
     emdb_df.set(df_updated)
 
