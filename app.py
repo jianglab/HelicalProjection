@@ -333,7 +333,10 @@ with ui.sidebar(
                 ui.input_checkbox(
                     "match_sf", 
                     "Apply matched-filter", 
-                    value=False
+                    value=True
+                )
+                ui.input_checkbox(
+                    "plot_scores", "Plot matching scores", value=True
                 )
                 ui.input_checkbox(
                     "hide_query_image", 
@@ -342,9 +345,6 @@ with ui.sidebar(
                 )
                 ui.input_checkbox(
                     "show_gallery_print_button", "Show image gallery print button", value=False
-                )
-                ui.input_checkbox(
-                    "plot_scores", "Plot matching scores", value=True
                 )
 
 
@@ -394,7 +394,7 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
             "map_side_projection_vertical_display_size",
             "Side projection display size (pixel)",
             min=32,
-            max=1024,
+            max=512,
             value=128,
             step=32,
         )
@@ -628,12 +628,12 @@ def update_selected_image_rotation_shift_diameter():
     rotation = np.mean(tmp[:, 0])
     shift_y = np.mean(tmp[:, 1])
     diameter = np.max(tmp[:, 2])
-    crop_size = int(diameter * 2 + 2)//4*4
+    crop_size = int(diameter * 3)//4*4
 
     selected_image_diameter.set(diameter)
     ui.update_numeric("pre_rotation", value=round(rotation, 1))
     ui.update_numeric("shift_y", value=shift_y, min=-crop_size//2, max=crop_size//2)
-    ui.update_numeric("vertical_crop_size", value=crop_size, max=ny)
+    ui.update_numeric("vertical_crop_size", value=max(32, crop_size), min=max(32, int(diameter)//2*2), max=ny)
 
 
 @reactive.effect
@@ -748,6 +748,7 @@ def update_emdb_df():
         cols.insert(twist_index, 'twist*')
         df_updated['twist*'] = np.round(twist_star, 3)                            
         df_updated = df_updated[cols]
+        df_updated = df_updated.sort_values(by='twist*')
     
     emdb_df.set(df_updated)
 
@@ -878,7 +879,7 @@ def update_map_side_projections_displayed():
         rotation_angle = round(rotation_angle, 1)
         if not input.hide_query_image():
             images_displayed.append(aligned_image_moving)
-            images_displayed_labels.append(f"{i+1}/{len(images_work)}: {image_query_label}|{'|vflip' if flip else ''}{'|'+str(scale) if scale!=1 else ''}{'|'+str(rotation_angle)}°")
+            images_displayed_labels.append(f"{i+1}/{len(images_work)}: {image_query_label}{'|vflip' if flip else ''}{'|'+str(scale) if scale!=1 else ''}{'|'+str(rotation_angle)}°")
         images_displayed.append(proj)
         images_displayed_labels.append(f"{i+1}/{len(images_work)}: {proj_label}|score={similarity_score:.3f}{'|'+title if title else ''}")
     map_side_projections_displayed.set(images_displayed)
@@ -927,3 +928,4 @@ async def update_selected_maps_from_score_plot():
     cols = tuple([i for i in range(len(df.columns))])
     selection = dict(type="row", rows=row_indces, cols=cols)
     await display_emdb_dataframe.update_cell_selection(selection)
+ 
