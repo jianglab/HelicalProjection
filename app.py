@@ -42,6 +42,7 @@ map_side_projections_with_alignments = reactive.value([])
 map_side_projections_displayed = reactive.value([])
 map_side_projection_title = reactive.value("Map side projections:")
 map_side_projection_labels = reactive.value([])
+map_side_projection_links = reactive.value([])
 map_side_projection_vertical_display_size = reactive.value(128)
  
 ui.head_content(ui.tags.title("HelicalProjection"))
@@ -513,6 +514,7 @@ with ui.div(style="max-height: 80vh; overflow-y: auto;"):
             label=map_side_projection_title,
             images=map_side_projections_displayed,
             image_labels=map_side_projection_labels,
+            image_links=map_side_projection_links,
             image_size=map_side_projection_vertical_display_size,
             justification="left",
             enable_selection=False
@@ -868,6 +870,7 @@ def update_map_side_projections_displayed():
     
     images_displayed = []
     images_displayed_labels = []
+    images_displayed_links = []
     for i, image in enumerate(images_work):
         flip, scale, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving, image_query_label, proj, proj_label = image
         if df is not None and proj_label in df["emdb_id"].values:
@@ -881,10 +884,16 @@ def update_map_side_projections_displayed():
         if not input.hide_query_image():
             images_displayed.append(aligned_image_moving)
             images_displayed_labels.append(f"{i+1}/{len(images_work)}: {image_query_label}{'|vflip' if flip else ''}{'|'+str(scale) if scale!=1 else ''}{'|'+str(rotation_angle)}°")
+            images_displayed_links.append("")
         images_displayed.append(proj)
         images_displayed_labels.append(f"{i+1}/{len(images_work)}: {proj_label}|score={similarity_score:.3f}{'|'+title if title else ''}")
+        if proj_label.startswith("emd_"):
+            images_displayed_links.append(f"https://www.ebi.ac.uk/emdb/EMD-{proj_label.split('_')[-1]}")
+        elif proj_label.startswith("EMD-"):
+            images_displayed_links.append(f"https://www.ebi.ac.uk/emdb/EMD-{proj_label.split('-')[-1]}") 
     map_side_projections_displayed.set(images_displayed)
     map_side_projection_labels.set(images_displayed_labels)
+    map_side_projection_links.set(images_displayed_links) 
     if df is not None: emdb_df.set(df.copy())
 
 
