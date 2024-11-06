@@ -46,8 +46,8 @@ class MapInfo:
     cache_dir=str(helicon.cache_dir / "helicalProjection"), expires_after=7, verbose=0
 )  # 7 days
 def get_images_from_url(url):
-    url_final = get_direct_url(url)  # convert cloud drive indirect url to direct url
-    fileobj = download_file_from_url(url_final)
+    url_final = helicon.get_direct_url(url)  # convert cloud drive indirect url to direct url
+    fileobj = helicon.download_file_from_url(url_final)
     if fileobj is None:
         raise ValueError(
             f"ERROR: {url} could not be downloaded. If this url points to a cloud drive file, make sure the link is a direct download link instead of a link for preview"
@@ -64,96 +64,6 @@ def get_images_from_file(imageFile):
         data = mrc.data
     return data, round(apix, 4)
 
-
-def download_file_from_url(url):
-    import tempfile
-    import requests
-    import os
-
-    if pathlib.Path(url).is_file():
-        return open(url, "rb")
-    try:
-        filesize = get_file_size(url)
-        local_filename = url.split("/")[-1]
-        suffix = "." + local_filename
-        fileobj = tempfile.NamedTemporaryFile(suffix=suffix)
-        with requests.get(url) as r:
-            r.raise_for_status()  # Check for request success
-            fileobj.write(r.content)
-        return fileobj
-    except requests.exceptions.RequestException as e:
-        print(e)
-        return None
-
-
-def get_direct_url(url):
-    import re
-
-    if url.startswith("https://drive.google.com/file/d/"):
-        hash = url.split("/")[5]
-        return f"https://drive.google.com/uc?export=download&id={hash}"
-    elif url.startswith("https://app.box.com/s/"):
-        hash = url.split("/")[-1]
-        return f"https://app.box.com/shared/static/{hash}"
-    elif url.startswith("https://www.dropbox.com"):
-        if url.find("dl=1") != -1:
-            return url
-        elif url.find("dl=0") != -1:
-            return url.replace("dl=0", "dl=1")
-        else:
-            return url + "?dl=1"
-    elif url.find("sharepoint.com") != -1 and url.find("guestaccess.aspx") != -1:
-        return url.replace("guestaccess.aspx", "download.aspx")
-    elif url.startswith("https://1drv.ms"):
-        import base64
-
-        data_bytes64 = base64.b64encode(bytes(url, "utf-8"))
-        data_bytes64_String = (
-            data_bytes64.decode("utf-8").replace("/", "_").replace("+", "-").rstrip("=")
-        )
-        return (
-            f"https://api.onedrive.com/v1.0/shares/u!{data_bytes64_String}/root/content"
-        )
-    else:
-        return url
-
-
-def get_file_size(url):
-    import requests
-
-    response = requests.head(url)
-    if "Content-Length" in response.headers:
-        file_size = int(response.headers["Content-Length"])
-        return file_size
-    else:
-        return None
-    
-def estimate_rotation_center_diameter(data):
-  from skimage.filters import threshold_otsu
-  from skimage.measure import label, regionprops
-  from skimage.morphology import closing
-  import helicon
-
-  thresh = threshold_otsu(data)
-  bw = closing(data > thresh)
-  label_image = label(bw)
-  props = regionprops(label_image=label_image, intensity_image=data)
-  props.sort(key=lambda x: x.area, reverse=True)
-  angle = np.rad2deg(props[0].orientation) + 90   # relative to +x axis, counter-clockwise
-  if abs(angle)>90: angle -= 180
-  rotation = helicon.set_to_periodic_range(angle, min=-180, max=180)
-
-  data_rotated = helicon.transform_image(image=data.copy(), rotation=rotation)
-  bw = closing(data_rotated > thresh)
-  label_image = label(bw)
-  props = regionprops(label_image=label_image, intensity_image=data_rotated)
-  props.sort(key=lambda x: x.area, reverse=True)
-  minr, minc, maxr, maxc = props[0].bbox
-  diameter = maxr-minr+1
-  center = props[0].centroid
-  shift_y = data.shape[0]//2 - center[0]
-  
-  return rotation, shift_y, diameter
 
 @helicon.cache(expires_after=7, cache_dir=helicon.cache_dir / "helicalProjection", verbose=0)
 def get_one_map_xyz_projects(map_info, length_z, map_projection_xyz_choices):

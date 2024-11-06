@@ -627,7 +627,7 @@ def update_selected_image_rotation_shift_diameter():
     req(len(selected_images_original()))
     
     ny = int(np.max([img.shape[0] for img in selected_images_original()]))
-    tmp = np.array([compute.estimate_rotation_center_diameter(img) for img in selected_images_original()])
+    tmp = np.array([helicon.estimate_helix_rotation_center_diameter(img) for img in selected_images_original()])
     rotation = np.mean(tmp[:, 0])
     shift_y = np.mean(tmp[:, 1])
     diameter = np.max(tmp[:, 2])
