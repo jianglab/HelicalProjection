@@ -112,7 +112,7 @@ with ui.sidebar(
                 )
 
                 @render.ui
-                @reactive.event(input.show_gallery_print_button)
+                @reactive.event(input.show_download_print_buttons)
                 def generate_ui_print_input_images():
                     req(input.show_gallery_print_button())
                     return ui.input_action_button(
@@ -235,24 +235,33 @@ with ui.sidebar(
                     enable_selection=False
                 )
 
-                @render.ui
-                @reactive.event(input.show_gallery_print_button)
-                def generate_ui_print_map_xyz_projection_images():
-                    req(input.show_gallery_print_button())
-                    return ui.input_action_button(
-                            "print_map_xyz_projection_images",
-                            "Print map XYZ projection images",
-                            onclick=""" 
-                                        var w = window.open();
-                                        w.document.write(document.head.outerHTML);
-                                        var printContents = document.getElementById('display_map_xyz_projections-show_image_gallery').innerHTML;
-                                        w.document.write(printContents);
-                                        w.document.write('<script type="text/javascript">window.onload = function() { window.print(); w.close();};</script>');
-                                        w.document.close();
-                                        w.focus();
-                                    """,
-                            width="300px"
-                        )
+                with ui.div(style="display: flex; flex-wrap: wrap; justify-content: center; gap: 2px;"):
+                    with ui.panel_conditional("input.show_download_print_buttons && (input.input_mode_maps === 'amyloid_atlas' || input.input_mode_maps === 'EMDB-helical' || input.input_mode_maps === 'EMDB')"):
+                        @render.download(label="Download the table", filename="helicalProjection.table.csv")
+                        @reactive.event(input.show_download_print_buttons)
+                        def download_dataframe():
+                            req(input.show_download_print_buttons())
+                            df = display_emdb_dataframe.data_view()
+                            req(len(df))
+                            yield df.to_csv()
+
+                    @render.ui
+                    @reactive.event(input.show_download_print_buttons)
+                    def generate_ui_print_map_xyz_projection_images():
+                        req(input.show_download_print_buttons())
+                        return ui.input_action_button(
+                                "print_map_xyz_projection_images",
+                                "Print map XYZ projection images",
+                                onclick=""" 
+                                            var w = window.open();
+                                            w.document.write(document.head.outerHTML);
+                                            var printContents = document.getElementById('display_map_xyz_projections-show_image_gallery').innerHTML;
+                                            w.document.write(printContents);
+                                            w.document.write('<script type="text/javascript">window.onload = function() { window.print(); w.close();};</script>');
+                                            w.document.close();
+                                            w.focus();
+                                        """,
+                            )
 
         with ui.nav_panel("Parameters"):
             with ui.layout_columns(
@@ -345,7 +354,7 @@ with ui.sidebar(
                     value=False
                 )
                 ui.input_checkbox(
-                    "show_gallery_print_button", "Show image gallery print button", value=False
+                    "show_download_print_buttons", "Show dataframe download and image gallery print buttons", value=False
                 )
 
 
@@ -522,9 +531,9 @@ with ui.div(style="max-height: 80vh; overflow-y: auto;"):
 
 
     @render.ui
-    @reactive.event(input.show_gallery_print_button)
-    def generate_ui_print_map_side_projection_images():
-        req(input.show_gallery_print_button())
+    @reactive.event(input.show_download_print_buttons)
+    def generate_ui_download_print_buttons():
+        req(input.show_download_print_buttons())
         return ui.input_action_button(
                 "print_map_side_projection_images",
                 "Print map side projection images",
@@ -716,24 +725,26 @@ def update_emdb_df():
         df_updated = df_updated[cols]
 
     if input.use_curated_helical_parameters() and "twist" in df_original and "rise" in df_original:
-        columns = df_updated.columns 
+        columns = df_updated.columns
         url = "https://raw.githubusercontent.com/jianglab/EMDB_helical_parameter_curation/refs/heads/main/EMDB_validation.csv"
-        try:
-            df_curated = pd.read_csv(url)
-            df_curated = df_curated[df_curated['emdb_id'].isin(df_original['emdb_id'])]
-            df_curated = df_curated[['emdb_id', 'curated_twist (°)', 'curated_rise (Å)', 'curated_csym']]
-            df_updated = df_updated.merge(
-                df_curated,
-                on='emdb_id',
-                how='left',
-                suffixes=('', '_curated')
-            )
-            df_updated['twist'] = df_updated['curated_twist (°)'].combine_first(df_updated['twist']).astype(float).round(3)
-            df_updated['rise'] = df_updated['curated_rise (Å)'].combine_first(df_updated['rise']).astype(float).round(3)
-            df_updated['csym'] = df_updated['curated_csym'].combine_first(df_updated['csym'])
-            df_updated = df_updated[columns]
-        except Exception as e:
-             print(str(e))
+
+        df_curated = pd.read_csv(url)
+        df_curated = df_curated[df_curated['emdb_id'].isin(df_original['emdb_id'])]
+        df_curated = df_curated.rename(columns={'curated_twist (°)': 'twist', 'curated_rise (Å)': 'rise', 'curated_csym': 'csym'})
+        df_curated = df_curated[['emdb_id', 'twist', 'rise', 'csym']]
+        df_updated = df_updated.merge(
+            df_curated,
+            on='emdb_id',
+            how='left',
+            suffixes=('', '_curated')
+        )
+        df_updated['twist'] = df_updated['twist_curated'].combine_first(df_updated['twist'])
+        df_updated['rise'] = df_updated['rise_curated'].combine_first(df_updated['rise'])
+        df_updated['csym'] = df_updated['csym_curated'].combine_first(df_updated['csym'])
+        #df_updated['twist'] = df_updated['twist'].str.replace("−", "-")
+        df_updated['twist'] = pd.to_numeric(df_updated['twist'], errors='coerce').round(3)
+        df_updated['rise'] = pd.to_numeric(df_updated['rise'], errors='coerce').round(3)
+        df_updated = df_updated[columns]
     
     if input.show_twist_star and "twist" in df_updated and "rise" in df_updated:
         rise = df_updated["rise"].astype(float).abs()
