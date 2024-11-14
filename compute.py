@@ -64,6 +64,16 @@ def get_images_from_file(imageFile):
         data = mrc.data
     return data, round(apix, 4)
 
+def get_amyloid_n_sub_1_symmetry(twist, rise, max_n=10):
+    ret = 1
+    for n in range(max_n, 1, -1):
+        if not (4.5 < rise * n < 5):
+            continue
+        if abs(360 - abs(twist * n)) > 90:
+            continue
+        ret = n
+        break
+    return ret 
 
 @helicon.cache(expires_after=7, cache_dir=helicon.cache_dir / "helicalProjection", verbose=0)
 def get_one_map_xyz_projects(map_info, length_z, map_projection_xyz_choices):
@@ -84,6 +94,7 @@ def get_one_map_xyz_projects(map_info, length_z, map_projection_xyz_choices):
     if 'z' in map_projection_xyz_choices:
         rise = map_info.rise
         if rise>0:
+            rise *=  get_amyloid_n_sub_1_symmetry(twist=map_info.twist, rise=map_info.rise)
             images += [helicon.crop_center_z(data, n=max(1, int(0.5 + length_z * rise / apix))).sum(axis=0)]
         else:
             images += [data.sum(axis=0)]

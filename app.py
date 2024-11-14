@@ -492,13 +492,13 @@ with ui.div(style="max-height: 80vh; overflow-y: auto;"):
         @reactive.event(map_side_projections_with_alignments)
         def generate_ui_select_top_n():
             ui.remove_ui(selector="#div_select_top_n")
-            req(len(map_side_projections_with_alignments())>1)
+            req(len(map_side_projections_with_alignments()))
             selector_ui = ui.div( 
                 ui.input_numeric(
                     "select_top_n",
                     "Number of top matches:",
                     min=0,
-                    value=10,
+                    value=min(10, len(map_side_projections_with_alignments())),
                     width="150px"
                 ),
 
@@ -749,14 +749,15 @@ def update_emdb_df():
     if input.show_twist_star and "twist" in df_updated and "rise" in df_updated:
         rise = df_updated["rise"].astype(float).abs()
         twist_star = df_updated["twist"].astype(float).abs()
-        # 2sub1
-        mask = (rise * 2 < 5) & (4.5 < rise * 2) & ((360 - twist_star * 2) < 90)
-        mask |= (rise < 5) & (4.5 < rise) & (abs(360 - twist_star * 2) < 90)
-        twist_star = twist_star.copy()
-        twist_star[mask] = abs(360 - twist_star[mask] * 2)
-        #3sub1
-        mask = (rise * 3 < 5) & (4.5 < rise * 3) & (abs(360 - twist_star * 3) < 90)
-        twist_star[mask] = abs(360 - twist_star[mask] * 3)                        
+        for n in range(10, 1, -1):
+            if n==2:
+                mask = (rise * 2 < 5) & (4.5 < rise * 2) & ((360 - twist_star * 2) < 90)
+                mask |= (rise < 5) & (4.5 < rise) & (abs(360 - twist_star * 2) < 90)
+                twist_star[mask] = abs(360 - twist_star * 2)
+            else:
+                mask = (rise * n < 5) & (4.5 < rise * n) & (abs(360 - twist_star * n) < 90)
+                twist_star[mask] = abs(360 - twist_star * n)
+
         cols = df_updated.columns.tolist()
         twist_index = cols.index('twist')
         cols.insert(twist_index, 'twist*')
