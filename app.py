@@ -309,6 +309,14 @@ with ui.sidebar(
                     value=128,
                     step=16,
                 )
+                ui.input_slider(
+                    "map_side_projection_vertical_display_size",
+                    "Side projection display size (pixel)",
+                    min=32,
+                    max=512,
+                    value=128,
+                    step=32,
+                )
                 ui.input_numeric(
                     "length_z",
                     "Z-projection length (x rise)",
@@ -401,14 +409,14 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
         )
         
         ui.input_slider(
-            "map_side_projection_vertical_display_size",
-            "Side projection display size (pixel)",
-            min=32,
-            max=512,
-            value=128,
-            step=32,
+            "threshold",
+            "Threshold",
+            min=0.0,
+            max=1.0,
+            value=0.0,
+            step=0.1
         )
-
+        
         ui.input_radio_buttons(
             "sort_map_side_projections_by",
             "Sort projections by",
@@ -641,11 +649,15 @@ def update_selected_image_rotation_shift_diameter():
     shift_y = np.mean(tmp[:, 1])
     diameter = np.max(tmp[:, 2])
     crop_size = int(diameter * 3)//4*4
+    min_val = float(np.min([np.min(img) for img in selected_images_original()]))
+    max_val = float(np.max([np.max(img) for img in selected_images_original()]))
+    step_val = (max_val-min_val)/100
 
     selected_image_diameter.set(diameter)
     ui.update_numeric("pre_rotation", value=round(rotation, 1))
     ui.update_numeric("shift_y", value=shift_y, min=-crop_size//2, max=crop_size//2)
     ui.update_numeric("vertical_crop_size", value=max(32, crop_size), min=max(32, int(diameter)//2*2), max=ny)
+    ui.update_numeric("threshold", value=max(min_val, min(0, max_val)), min=round(min_val, 3), max=round(max_val, 3), step=round(step_val, 3))
 
 
 @reactive.effect
@@ -690,6 +702,17 @@ def crop_selected_images():
                 cropped.append(img)
         selected_images_rotated_shifted_cropped.set(cropped)
 
+@reactive.effect
+@reactive.event(selected_images_rotated_shifted, input.threshold)
+def threshold_selected_images():
+    req(len(selected_images_rotated_shifted()))
+    tmp = []
+    for img in selected_images_rotated_shifted():
+        img_copy = img.copy()
+        mask = img_copy < input.threshold()
+        img_copy[mask] = input.threshold()
+        tmp.append(img_copy)
+    selected_images_rotated_shifted_cropped.set(tmp)
 
 @reactive.effect
 @reactive.event(input.input_mode_maps, input.upload_map, input.twist, input.rise, input.csym)
@@ -824,7 +847,7 @@ def get_map_side_projections():
 
     ny, nx = image_query.shape
     arc = np.sqrt((nx/2*0.8)**2 + selected_image_diameter()**2/4)
-    angle_range = min(2, round(90 - np.rad2deg(np.arccos(ny/2/arc)), 1))
+    angle_range = min(2, round(90 - np.rad2deg(np.arccos(np.clip(ny/2/arc, a_min=-1, a_max=1))), 1))
     
     images = []
     with ui.Progress(min=0, max=len(maps())) as p:
