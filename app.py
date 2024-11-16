@@ -430,7 +430,7 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
         @reactive.event(maps)
         def display_action_button():
             req(len(maps()))
-            return ui.input_task_button("generate_projections", label="Generate Projections")
+            return ui.input_task_button("compare_projections", label="Compare Projections")
 
 
 with ui.div(style="max-height: 80vh; overflow-y: auto;"):
@@ -831,7 +831,7 @@ def get_map_xyz_projections():
 
  
 @reactive.effect
-@reactive.event(input.generate_projections)
+@reactive.event(input.compare_projections)
 def get_map_side_projections():
     req(len(maps()))
     req(len(selected_images_thresholded_rotated_shifted_cropped()))
@@ -967,7 +967,7 @@ async def update_selected_maps_from_score_plot():
         ]
     )
     df = display_emdb_dataframe.data_view()
-    row_indces = tuple(range(len(df)))
+    row_indces = list(df.index)
     cols = tuple([i for i in range(len(df.columns))])
     selection = dict(type="row", rows=row_indces, cols=cols)
     await display_emdb_dataframe.update_cell_selection(selection)
