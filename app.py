@@ -23,9 +23,10 @@ displayed_image_labels = reactive.value([])
 
 initial_selected_image_indices = reactive.value([0])
 selected_images_original = reactive.value([])
-selected_images_rotated_shifted = reactive.value([])
+selected_images_thresholded = reactive.value([])
+selected_images_thresholded_rotated_shifted = reactive.value([])
 selected_image_diameter = reactive.value(0)
-selected_images_rotated_shifted_cropped = reactive.value([])
+selected_images_thresholded_rotated_shifted_cropped = reactive.value([])
 selected_images_title = reactive.value("Selected image:")
 selected_images_labels = reactive.value([])
 
@@ -309,7 +310,7 @@ with ui.sidebar(
                     value=128,
                     step=16,
                 )
-                ui.input_slider(
+                ui.input_numeric(
                     "map_side_projection_vertical_display_size",
                     "Side projection display size (pixel)",
                     min=32,
@@ -373,7 +374,7 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
     helicon.shiny.image_select(
         id="display_selected_image",
         label=selected_images_title,
-        images=selected_images_rotated_shifted_cropped,
+        images=selected_images_thresholded_rotated_shifted_cropped,
         image_labels=selected_images_labels,
         image_size=map_side_projection_vertical_display_size,
         justification="left",
@@ -381,6 +382,15 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
     )
 
     with ui.layout_columns(col_widths=4):
+        ui.input_slider(
+            "threshold",
+            "Threshold",
+            min=0.0,
+            max=1.0,
+            value=0.0,
+            step=0.1
+        )
+
         ui.input_slider(
             "pre_rotation",
             "Rotation (°)",
@@ -407,16 +417,7 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
             value=0,
             step=2,
         )
-        
-        ui.input_slider(
-            "threshold",
-            "Threshold",
-            min=0.0,
-            max=1.0,
-            value=0.0,
-            step=0.1
-        )
-        
+                
         ui.input_radio_buttons(
             "sort_map_side_projections_by",
             "Sort projections by",
@@ -657,7 +658,7 @@ def update_selected_image_rotation_shift_diameter():
     ui.update_numeric("pre_rotation", value=round(rotation, 1))
     ui.update_numeric("shift_y", value=shift_y, min=-crop_size//2, max=crop_size//2)
     ui.update_numeric("vertical_crop_size", value=max(32, crop_size), min=max(32, int(diameter)//2*2), max=ny)
-    ui.update_numeric("threshold", value=max(min_val, min(0, max_val)), min=round(min_val, 3), max=round(max_val, 3), step=round(step_val, 3))
+    ui.update_numeric("threshold", value=min_val, min=round(min_val, 3), max=round(max_val, 3), step=round(step_val, 3))
 
 
 @reactive.effect
@@ -672,47 +673,44 @@ def update_selecte_images_orignal():
 
 
 @reactive.effect
-@reactive.event(selected_images_original, input.pre_rotation, input.shift_y)
-def transform_selected_images():
+@reactive.event(selected_images_original, input.threshold)
+def threshold_selected_images():
     req(len(selected_images_original()))
-    if input.pre_rotation!=0 or input.shift_y!=0:
-        rotated = []
-        for img in selected_images_original():
-            rotated.append(helicon.transform_image(image=img.copy(), rotation=input.pre_rotation(), post_translation=(input.shift_y(), 0)))
-    else:
-        rotated = selected_images_original()
-    selected_images_rotated_shifted.set(rotated)
+    tmp = [helicon.threshold_data(img, thresh_value=input.threshold()) for img in selected_images_original()]
+    selected_images_thresholded.set(tmp)
 
 
 @reactive.effect
-@reactive.event(selected_images_rotated_shifted, input.vertical_crop_size)
+@reactive.event(selected_images_thresholded, input.pre_rotation, input.shift_y)
+def transform_selected_images():
+    req(len(selected_images_thresholded()))
+    if input.pre_rotation!=0 or input.shift_y!=0:
+        rotated = []
+        for img in selected_images_thresholded():
+            rotated.append(helicon.transform_image(image=img, rotation=input.pre_rotation(), post_translation=(input.shift_y(), 0)))
+    else:
+        rotated = selected_images_original()
+    selected_images_thresholded_rotated_shifted.set(rotated)
+
+
+@reactive.effect
+@reactive.event(selected_images_thresholded_rotated_shifted, input.vertical_crop_size)
 def crop_selected_images():
-    req(len(selected_images_rotated_shifted()))
+    req(len(selected_images_thresholded_rotated_shifted()))
     req(input.vertical_crop_size()>0)
     if input.vertical_crop_size()<32:
-        selected_images_rotated_shifted_cropped.set(selected_images_rotated_shifted)
+        selected_images_thresholded_rotated_shifted_cropped.set(selected_images_thresholded_rotated_shifted)
     else:
         d = int(input.vertical_crop_size())
         cropped = []
-        for img in selected_images_rotated_shifted():
+        for img in selected_images_thresholded_rotated_shifted():
             ny, nx = img.shape
             if d<ny:
                 cropped.append(helicon.crop_center(img, shape=(d, nx)))
             else:
                 cropped.append(img)
-        selected_images_rotated_shifted_cropped.set(cropped)
+        selected_images_thresholded_rotated_shifted_cropped.set(cropped)
 
-@reactive.effect
-@reactive.event(selected_images_rotated_shifted, input.threshold)
-def threshold_selected_images():
-    req(len(selected_images_rotated_shifted()))
-    tmp = []
-    for img in selected_images_rotated_shifted():
-        img_copy = img.copy()
-        mask = img_copy < input.threshold()
-        img_copy[mask] = input.threshold()
-        tmp.append(img_copy)
-    selected_images_rotated_shifted_cropped.set(tmp)
 
 @reactive.effect
 @reactive.event(input.input_mode_maps, input.upload_map, input.twist, input.rise, input.csym)
@@ -836,8 +834,8 @@ def get_map_xyz_projections():
 @reactive.event(input.generate_projections)
 def get_map_side_projections():
     req(len(maps()))
-    req(len(selected_images_rotated_shifted_cropped()))
-    image_query = selected_images_rotated_shifted_cropped()[0]
+    req(len(selected_images_thresholded_rotated_shifted_cropped()))
+    image_query = selected_images_thresholded_rotated_shifted_cropped()[0]
     image_query_label = selected_images_labels()[0]
     image_query_apix = image_apix()
     rescale_apix = input.rescale_apix()
