@@ -379,6 +379,7 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
         image_size=map_side_projection_vertical_display_size,
         justification="left",
         enable_selection=False,
+        display_dashed_line=True,
     )
 
     with ui.layout_columns(col_widths=4):
@@ -844,29 +845,44 @@ def get_map_side_projections():
     scale_range = input.scale_range()/100
 
     ny, nx = image_query.shape
-    arc = np.sqrt((nx/2*0.8)**2 + selected_image_diameter()**2/4)
-    angle_range = min(2, round(90 - np.rad2deg(np.arccos(np.clip(ny/2/arc, a_min=-1, a_max=1))), 1))
+    #arc = np.sqrt((nx/2*0.8)**2 + selected_image_diameter()**2/4)
+    #angle_range = min(2, round(90 - np.rad2deg(np.arccos(np.clip(ny/2/arc, a_min=-1, a_max=1))), 1))
+    angle_range = 0
     
     images = []
     with ui.Progress(min=0, max=len(maps())) as p:
         p.set(message="Generating side projections", detail="This may take a while ...")
 
-        twist_zeros = []
-        failed = []
-        for mi, m in enumerate(maps()):
-            if abs(m.twist) == 0:
-                twist_zeros.append(m.label)
-                continue
+        from concurrent.futures import ThreadPoolExecutor
 
-            p.set(mi, message=f"{mi+1}/{len(maps())}: symmetrizing/projecting/matching {m.label}", detail=f"twist={m.twist}° rise={m.rise}Å csym=C{m.csym}")
+        with ThreadPoolExecutor(max_workers=helicon.available_cpu()) as executor:
+            future_tasks = [ 
+                (
+                    m,
+                    executor.submit(compute.symmetrize_project_align_one_map, m, image_query, image_query_label, image_query_apix, rescale_apix, length_xy_factor, match_sf, angle_range, scale_range)
+                ) 
+                for m in maps() if abs(m.twist)
+            ]
+            
+            from time import time
 
-            result = compute.symmetrize_project_align_one_map(m, image_query, image_query_label, image_query_apix, rescale_apix, length_xy_factor, match_sf, angle_range, scale_range)
+            t0 = time()
+            results = []
+            for ti, (m, task) in enumerate(future_tasks):
+                result = task.result()
+                t1 = time()
+                results.append((m, result))
+                message=f"{ti+1}/{len(maps())}: symmetrizing/projecting/matching {m.label}: twist={m.twist}° rise={m.rise}Å csym=C{m.csym}"
+                remaining = (len(future_tasks) - (ti + 1)) / (ti + 1) * (t1 - t0)
+                p.set(
+                    ti + 1,
+                    message=message,
+                    detail=f"{helicon.timedelta2string(remaining)} remaining",
+                )
 
-            if result is None:
-                failed.append(m.label)
-                continue
-
-            images.append(result)
+        twist_zeros = [m.label for m in maps() if abs(m.twist) == 0]
+        failed = [m.label for m, result in results if result is None]
+        images = [result for _, result in results if result]
 
     if twist_zeros:
         m = ui.modal(
