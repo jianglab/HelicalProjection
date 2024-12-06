@@ -384,15 +384,6 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
 
     with ui.layout_columns(col_widths=4):
         ui.input_slider(
-            "threshold",
-            "Threshold",
-            min=0.0,
-            max=1.0,
-            value=0.0,
-            step=0.1
-        )
-
-        ui.input_slider(
             "pre_rotation",
             "Rotation (°)",
             min=-45,
@@ -401,15 +392,6 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
             step=0.1,
         )
         
-        ui.input_slider(
-            "shift_y",
-            "Vertical shift (pixel)",
-            min=-100,
-            max=100,
-            value=0,
-            step=1,
-        )
-
         ui.input_slider(
             "vertical_crop_size",
             "Vertical crop (pixel)",
@@ -425,6 +407,24 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
             choices=["selection", "similarity score"],
             selected="similarity score",
             inline=True
+        )
+
+        ui.input_slider(
+            "shift_y",
+            "Vertical shift (pixel)",
+            min=-100,
+            max=100,
+            value=0,
+            step=1,
+        )
+
+        ui.input_slider(
+            "threshold",
+            "Threshold",
+            min=0.0,
+            max=1.0,
+            value=0.0,
+            step=0.1
         )
 
         @render.ui
@@ -646,7 +646,7 @@ def update_selected_image_rotation_shift_diameter():
     req(len(selected_images_original()))
     
     ny = int(np.max([img.shape[0] for img in selected_images_original()]))
-    tmp = np.array([helicon.estimate_helix_rotation_center_diameter(img) for img in selected_images_original()])
+    tmp = np.array([helicon.estimate_helix_rotation_center_diameter(img, threshold=np.max(img)*0.2) for img in selected_images_original()])
     rotation = np.mean(tmp[:, 0])
     shift_y = np.mean(tmp[:, 1])
     diameter = np.max(tmp[:, 2])
@@ -816,6 +816,9 @@ def get_map_xyz_projections():
     map_xyz_projections.set([])
     images = []
     image_labels = []
+
+    xyz_tag = ''.join([s.upper() for s in input.map_projection_xyz_choices()])
+    map_xyz_projection_title.set(f"Map {xyz_tag} projections:")
 
     with ui.Progress(min=0, max=len(maps())) as p:
         p.set(message="Generating x/yz/ projections", detail="This may take a while ...")
