@@ -393,14 +393,14 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
         )
         
         ui.input_slider(
-            "vertical_crop_size",
-            "Vertical crop (pixel)",
-            min=32,
-            max=256,
-            value=0,
-            step=2,
+            "threshold",
+            "Threshold",
+            min=0.0,
+            max=1.0,
+            value=0.0,
+            step=0.1
         )
-                
+
         ui.input_radio_buttons(
             "sort_map_side_projections_by",
             "Sort projections by",
@@ -419,14 +419,14 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
         )
 
         ui.input_slider(
-            "threshold",
-            "Threshold",
-            min=0.0,
-            max=1.0,
-            value=0.0,
-            step=0.1
+            "vertical_crop_size",
+            "Vertical crop (pixel)",
+            min=32,
+            max=256,
+            value=0,
+            step=2,
         )
-
+                
         @render.ui
         @reactive.event(maps)
         def display_action_button():
