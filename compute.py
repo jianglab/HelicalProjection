@@ -112,12 +112,12 @@ def get_one_map_xyz_projects(map_info, length_z, map_projection_xyz_choices):
 @helicon.cache(expires_after=7, cache_dir=helicon.cache_dir / "helicalProjection", verbose=0)
 def symmetrize_project_align_one_map(map_info, image_query, image_query_label, image_query_apix, rescale_apix, length_xy_factor, match_sf, angle_range, scale_range):
     if abs(map_info.twist) < 1e-3:
-        return None
+        return map_info, None
     
     try:
         data, apix = map_info.get_data()
     except:
-        return None
+        return map_info, None
 
     twist = map_info.twist
     rise = map_info.rise
@@ -165,4 +165,4 @@ def symmetrize_project_align_one_map(map_info, image_query, image_query_label, i
         mask = aligned_image_moving > 0
         proj = helicon.match_structural_factors(data=proj, apix=new_apix, data_target=aligned_image_moving, apix_target=new_apix, mask=mask)
 
-    return (flip, scale, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving, image_query_label, proj, label)
+    return map_info, (flip, scale, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving, image_query_label, proj, label)

@@ -856,14 +856,11 @@ def get_map_side_projections():
     with ui.Progress(min=0, max=len(maps())) as p:
         p.set(message="Generating side projections", detail="This may take a while ...")
 
-        from concurrent.futures import ThreadPoolExecutor
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
         with ThreadPoolExecutor(max_workers=helicon.available_cpu()) as executor:
             future_tasks = [ 
-                (
-                    m,
                     executor.submit(compute.symmetrize_project_align_one_map, m, image_query, image_query_label, image_query_apix, rescale_apix, length_xy_factor, match_sf, angle_range, scale_range)
-                ) 
                 for m in maps() if abs(m.twist)
             ]
             
@@ -871,14 +868,16 @@ def get_map_side_projections():
 
             t0 = time()
             results = []
-            for ti, (m, task) in enumerate(future_tasks):
+            
+            for task in as_completed(future_tasks):
                 result = task.result()
                 t1 = time()
-                results.append((m, result))
-                message=f"{ti+1}/{len(maps())}: symmetrizing/projecting/matching {m.label}: twist={m.twist}° rise={m.rise}Å csym=C{m.csym}"
-                remaining = (len(future_tasks) - (ti + 1)) / (ti + 1) * (t1 - t0)
+                results.append(result)
+                m = result[0]
+                message=f"{len(results)}/{len(maps())}: symmetrizing/projecting/matching {m.label}: twist={m.twist}° rise={m.rise}Å csym=C{m.csym}"
+                remaining = (len(future_tasks) - len(results)) / len(results) * (t1 - t0)
                 p.set(
-                    ti + 1,
+                    len(results),
                     message=message,
                     detail=f"{helicon.timedelta2string(remaining)} remaining",
                 )
