@@ -560,7 +560,7 @@ with ui.div(style="max-height: 80vh; overflow-y: auto;"):
 
     
 ui.HTML(
-    "<i><p>Developed by the <a href='https://jiang.bio.purdue.edu/HelicalProjection' target='_blank'>Jiang Lab</a>. Report issues to <a href='https://github.com/jianglab/HelicalProjection/issues' target='_blank'>HelicalProjection@GitHub</a>.</p></i>"
+    "<i><p>Developed by the <a href='https://jianglab.science.psu.edu/HelicalProjection' target='_blank'>Jiang Lab</a>. Report issues to <a href='https://github.com/jianglab/HelicalProjection/issues' target='_blank'>HelicalProjection@GitHub</a>.</p></i>"
 )
 
 @reactive.effect
@@ -787,6 +787,11 @@ def update_emdb_df():
         df_updated = df_updated.sort_values(by='twist*').reset_index()
         df_updated = df_updated[cols]
     
+    df_updated["emdb_id"] = [
+        ui.HTML(f"""<a href='https://www.ebi.ac.uk/emdb/{emdb_id}'
+                        target='_blank'>{emdb_id}</a>""")
+        for emdb_id in df_updated["emdb_id"]
+    ]
     emdb_df.set(df_updated)
 
 
@@ -800,7 +805,7 @@ def get_map_from_emdb():
     emdb_df_selected = display_emdb_dataframe.data().iloc[display_emdb_dataframe.data().index[selected_indices]]
     maps_tmp = []
     for i, row in emdb_df_selected.iterrows():    
-        emdb_id = row['emdb_id']
+        emdb_id = compute.extract_emdb_id(str(row['emdb_id']))
         twist = row['twist'] if 'twist' in row and not pd.isna(row['twist']) else 0
         rise = row['rise'] if 'rise' in row and not pd.isna(row['rise']) else 0
         csym = int(row['csym'][1:]) if 'csym' in row and not pd.isna(row['csym']) else 1

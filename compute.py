@@ -1,8 +1,13 @@
-import os, pathlib
-import numpy as np
-import pandas as pd
+import pathlib
 import helicon
 
+def extract_emdb_id(url):
+    import re
+    pattern = r'EMD-(\d+)'
+    match = re.search(pattern, url)
+    if match:
+        return f"EMD-{match.group(1)}"
+    return None
 
 class MapInfo:
     def __init__(self, data=None, filename=None, url=None, emd_id=None, label="", apix=None, twist=None, rise=None, csym=1):
