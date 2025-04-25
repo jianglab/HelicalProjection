@@ -171,9 +171,9 @@ with ui.sidebar(
                             
                         ret.append(
                             shiny.ui.layout_columns(
-                                ui.input_numeric("twist", "Twist (°)", value=179.402, min=-180, max=180, step=1),
-                                ui.input_numeric("rise", "Rise (Å)", value=2.378, min=0, step=1),
-                                ui.input_numeric("csym", "Csym", value=1, min=1, step=1),
+                                ui.input_numeric("twist", "Twist (°)", value=179.402, min=-180, max=180, step=1,update_on="blur",),
+                                ui.input_numeric("rise", "Rise (Å)", value=2.378, min=0, step=1,update_on="blur",),
+                                ui.input_numeric("csym", "Csym", value=1, min=1, step=1,update_on="blur",),
                                 col_widths=[4,4,4], style="align-items: flex-end;"
                             )
                         )
@@ -309,6 +309,7 @@ with ui.sidebar(
                     max=512,
                     value=128,
                     step=16,
+                    update_on="blur",
                 )
                 ui.input_numeric(
                     "map_side_projection_vertical_display_size",
@@ -317,6 +318,7 @@ with ui.sidebar(
                     max=512,
                     value=128,
                     step=32,
+                    update_on="blur",
                 )
                 ui.input_numeric(
                     "length_z",
@@ -324,6 +326,7 @@ with ui.sidebar(
                     min=0,
                     value=1,
                     step=1,
+                    update_on="blur",
                 )
                 ui.input_numeric(
                     "length_xy",
@@ -331,6 +334,7 @@ with ui.sidebar(
                     min=0,
                     value=1.2,
                     step=0.1,
+                    update_on="blur",
                 )
                 ui.input_numeric(
                     "scale_range",
@@ -339,6 +343,7 @@ with ui.sidebar(
                     max=100,
                     value=5,
                     step=1,
+                    update_on="blur",
                 )
 
             with ui.layout_columns(
@@ -371,16 +376,36 @@ title = "HelicalProjection: compare 2D images with helical structure projections
 ui.h1(title, style="font-weight: bold;")
 
 with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; gap: 10px; margin-bottom: 0"):
-    helicon.shiny.image_select(
-        id="display_selected_image",
-        label=selected_images_title,
-        images=selected_images_thresholded_rotated_shifted_cropped,
-        image_labels=selected_images_labels,
-        image_size=map_side_projection_vertical_display_size,
-        justification="left",
-        enable_selection=False,
-        display_dashed_line=True,
-    )
+    with ui.div(
+        style="display: flex; flex-flow: column wrap; align-items: flex-start; gap: 10px; margin-bottom: 0"
+    ):
+        helicon.shiny.image_select(
+            id="display_selected_image",
+            label=selected_images_title,
+            images=selected_images_thresholded_rotated_shifted_cropped,
+            image_labels=selected_images_labels,
+            image_size=map_side_projection_vertical_display_size,
+            justification="left",
+            enable_selection=False,
+            display_dashed_line=True,
+        )
+        
+        with ui.accordion(id="filtering_options", open=False, width="100%"):
+            with ui.accordion_panel(title="Filtering options:"):
+                ui.input_numeric(
+                    "lp_angst",
+                    "Low pass filtering (Å):",
+                    value=-1,
+                    step=0.1,
+                    update_on="blur",
+                )
+                ui.input_numeric(
+                    "hp_angst",
+                    "High pass filtering (Å):",
+                    value=-1,
+                    step=0.1,
+                    update_on="blur",
+                )
 
     with ui.layout_columns(col_widths=4):
         ui.input_slider(
@@ -398,7 +423,7 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
             min=0.0,
             max=1.0,
             value=0.0,
-            step=0.1
+            step=0.1,
         )
 
         ui.input_radio_buttons(
@@ -406,7 +431,7 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
             "Sort projections by",
             choices=["selection", "similarity score"],
             selected="similarity score",
-            inline=True
+            inline=True,
         )
 
         ui.input_slider(
@@ -583,6 +608,7 @@ def get_image_from_upload():
         )
         ui.modal_show(m)
         return
+    
     images_all.set(data)
     image_size.set(min(data.shape))
     image_apix.set(apix)
@@ -658,16 +684,35 @@ def update_selected_image_rotation_shift_diameter():
     selected_image_diameter.set(diameter)
     ui.update_numeric("pre_rotation", value=round(rotation, 1))
     ui.update_numeric("shift_y", value=shift_y, min=-crop_size//2, max=crop_size//2)
-    ui.update_numeric("vertical_crop_size", value=max(32, crop_size), min=max(32, int(diameter)//2*2), max=ny)
+    ui.update_numeric("vertical_crop_size", value=max(32, crop_size), min=max(32, min(int(diameter)//2*2, ny/2)), max=ny)
     ui.update_numeric("threshold", value=min_val, min=round(min_val, 3), max=round(max_val, 3), step=round(step_val, 3))
 
 
 @reactive.effect
-@reactive.event(input.select_image)
+@reactive.event(input.select_image, images_all, input.lp_angst, input.hp_angst)
 def update_selecte_images_orignal():
-    selected_images_original.set(
-        [displayed_images()[i] for i in input.select_image()]
-    )
+    print("select image updated")
+    images = [displayed_images()[i] for i in input.select_image()]
+    apix = image_apix()
+    
+    do_filtering = False
+    low_pass_fraction = -1
+    high_pass_fraction = -1
+    if input.lp_angst() > 0:
+        low_pass_fraction = 2 * apix / input.lp_angst()
+        do_filtering = True
+
+    if input.hp_angst() > 0:
+        high_pass_fraction = 2 * apix / input.hp_angst()
+        do_filtering = True
+
+    if do_filtering:
+        images = [
+            helicon.low_high_pass_filter(images[i], low_pass_fraction=low_pass_fraction, high_pass_fraction=high_pass_fraction)
+            for i in range(len(input.select_image()))
+        ]
+
+    selected_images_original.set(images)
     selected_images_labels.set(
         [displayed_image_labels()[i] for i in input.select_image()]
     )

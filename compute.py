@@ -63,10 +63,21 @@ def get_images_from_url(url):
 
 def get_images_from_file(imageFile):
     import mrcfile
+    import numpy as np
 
     with mrcfile.open(imageFile) as mrc:
         apix = float(mrc.voxel_size.x)
         data = mrc.data
+    
+    if isinstance(data,np.ndarray):
+        if len(data.shape) < 3:
+            ny, nx = np.shape(data)
+            data = np.expand_dims(data, axis=0)
+        else:
+            nz, ny, nx = np.shape(data)
+        if nx < ny:
+            data = np.array([np.max(img)-np.transpose(img) for img in data])
+    
     return data, round(apix, 4)
 
 def get_amyloid_n_sub_1_symmetry(twist, rise, max_n=10):
