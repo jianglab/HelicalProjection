@@ -1,5 +1,6 @@
 import pathlib
 import helicon
+import numpy as np
 
 def extract_emdb_id(url):
     import re
@@ -182,3 +183,35 @@ def symmetrize_project_align_one_map(map_info, image_query, image_query_label, i
         proj = helicon.match_structural_factors(data=proj, apix=new_apix, data_target=aligned_image_moving, apix_target=new_apix, mask=mask)
 
     return map_info, (flip, scale, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving, image_query_label, proj, label)
+
+import numpy as np
+
+def anisotropic_low_high_pass_filter(
+    data: np.ndarray, low_pass_fraction_x: float = 0, high_pass_fraction_x: float = 0, ratio: float = 1
+):
+    print("filtering")
+    if data.ndim not in [2]:
+        raise ValueError("Input data must be a 2D array.")
+
+    if data.ndim == 2:
+        fft = np.fft.fft2(data)
+        ny, nx = fft.shape
+        Y, X = np.meshgrid(
+            np.arange(ny, dtype=np.float32) - ny // 2,
+            np.arange(nx, dtype=np.float32) - nx // 2,
+            indexing="ij",
+        )
+        Y /= ny // 2
+        X /= nx // 2
+        R2 = X**2 + (Y*ratio)**2
+
+    if 0 < low_pass_fraction_x < 1:
+        f2 = np.log(2) / (low_pass_fraction_x**2)
+        filter_lp = np.exp(-f2 * R2)
+        fft *= np.fft.fftshift(filter_lp)
+    if 0 < high_pass_fraction_x < 1:
+        f2 = np.log(2) / (high_pass_fraction_x**2)
+        filter_hp = 1.0 - np.exp(-f2 * R2)
+        fft *= np.fft.fftshift(filter_hp)
+    ret = np.real(np.fft.ifftn(fft))
+    return ret

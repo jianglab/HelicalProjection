@@ -393,19 +393,28 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
         with ui.accordion(id="filtering_options", open=False, width="100%"):
             with ui.accordion_panel(title="Filtering options:"):
                 ui.input_numeric(
-                    "lp_angst",
-                    "Low pass filtering (Å):",
+                    "lp_angst_x",
+                    "Low pass filtering on X axis (Å):",
                     value=-1,
                     step=0.1,
                     update_on="blur",
                 )
                 ui.input_numeric(
-                    "hp_angst",
-                    "High pass filtering (Å):",
+                    "hp_angst_x",
+                    "High pass filtering on X axis (Å):",
                     value=-1,
                     step=0.1,
                     update_on="blur",
                 )
+                ui.input_numeric(
+                    "aniso_ratio_xy",
+                    "Anisotropic ratio (X/Y):",
+                    value=1.0,
+                    min=0.0,
+                    step=0.1,
+                    update_on="blur",
+                )
+
 
     with ui.layout_columns(col_widths=4):
         ui.input_slider(
@@ -689,26 +698,24 @@ def update_selected_image_rotation_shift_diameter():
 
 
 @reactive.effect
-@reactive.event(input.select_image, images_all, input.lp_angst, input.hp_angst)
+@reactive.event(input.select_image, images_all, input.lp_angst_x, input.hp_angst_x, input.aniso_ratio_xy)
 def update_selecte_images_orignal():
-    print("select image updated")
     images = [displayed_images()[i] for i in input.select_image()]
     apix = image_apix()
     
     do_filtering = False
-    low_pass_fraction = -1
-    high_pass_fraction = -1
-    if input.lp_angst() > 0:
-        low_pass_fraction = 2 * apix / input.lp_angst()
+    low_pass_fraction_x = -1
+    high_pass_fraction_x = -1
+    if input.lp_angst_x() > 0:
+        low_pass_fraction_x = 2 * apix / input.lp_angst_x()
         do_filtering = True
-
-    if input.hp_angst() > 0:
-        high_pass_fraction = 2 * apix / input.hp_angst()
+    if input.hp_angst_x() > 0:
+        high_pass_fraction_x = 2 * apix / input.hp_angst_x()
         do_filtering = True
 
     if do_filtering:
         images = [
-            helicon.low_high_pass_filter(images[i], low_pass_fraction=low_pass_fraction, high_pass_fraction=high_pass_fraction)
+            compute.anisotropic_low_high_pass_filter(images[i], low_pass_fraction_x=low_pass_fraction_x, high_pass_fraction_x=high_pass_fraction_x, ratio=input.aniso_ratio_xy())
             for i in range(len(input.select_image()))
         ]
 
@@ -1039,4 +1046,3 @@ async def update_selected_maps_from_score_plot():
     cols = tuple([i for i in range(len(df.columns))])
     selection = dict(type="row", rows=row_indces, cols=cols)
     await display_emdb_dataframe.update_cell_selection(selection)
- 
