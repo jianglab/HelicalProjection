@@ -420,8 +420,8 @@ with ui.div(style="display: flex; flex-direction: row; align-items: flex-start; 
         ui.input_slider(
             "pre_rotation",
             "Rotation (°)",
-            min=-45,
-            max=45,
+            min=-90,
+            max=90,
             value=0,
             step=0.1,
         )
