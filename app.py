@@ -804,7 +804,7 @@ def update_emdb_df():
 
         df_curated = pd.read_csv(url)
         df_curated = df_curated[df_curated['emdb_id'].isin(df_original['emdb_id'])]
-        df_curated = df_curated.rename(columns={'curated_twist (°)': 'twist', 'curated_rise (Å)': 'rise', 'curated_csym': 'csym'})
+        df_curated = df_curated.rename(columns={'twist_validated (°)': 'twist', 'rise_validated (Å)': 'rise', 'csym_validated': 'csym'})
         df_curated = df_curated[['emdb_id', 'twist', 'rise', 'csym']]
         df_updated = df_updated.merge(
             df_curated,
