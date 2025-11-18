@@ -48,7 +48,6 @@ map_side_projection_vertical_display_size = reactive.value(128)
  
 ui.head_content(ui.tags.title("HelicalProjection"))
 helicon.shiny.google_analytics(id="G-ELN1JJVYYZ")
-helicon.shiny.setup_ajdustable_sidebar()
 ui.tags.style(
     """
     * { font-size: 10pt; padding:0; border: 0; margin: 0; }
