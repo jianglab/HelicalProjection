@@ -6,11 +6,13 @@ from shinywidgets import render_plotly
 
 import shiny
 from shiny import reactive, req
-from shiny.express import input, ui, render
+from shiny.express import app_opts, input, session, ui, render
 
 import helicon
 
 from . import compute
+
+app_opts(bookmark_store="url")
 
 images_all = reactive.value([])
 image_size = reactive.value(0)
@@ -53,6 +55,13 @@ ui.tags.style(
     * { font-size: 10pt; padding:0; border: 0; margin: 0; }
     aside {--_padding-icon: 10px;}
     """
+)
+ui.head_content(
+    ui.tags.script("""
+        Shiny.addCustomMessageHandler('clear_url_params', function(message) {
+            window.history.replaceState({}, '', window.location.pathname);
+        });
+    """)
 )
 urls = {
     "empiar-10940_job010": (
@@ -369,6 +378,9 @@ with ui.sidebar(
                 ui.input_checkbox(
                     "show_download_print_buttons", "Show dataframe download and image gallery print buttons", value=False
                 )
+                ui.input_checkbox(
+                    "show_bookmark_url", "Show bookmark URL in address bar", value=False
+                )
 
 
 title = "HelicalProjection: compare 2D images with helical structure projections"
@@ -595,6 +607,22 @@ with ui.div(style="max-height: 80vh; overflow-y: auto;"):
 ui.HTML(
     "<i><p>Developed by the <a href='https://jianglab.science.psu.edu/HelicalProjection' target='_blank'>Jiang Lab</a>. Report issues to <a href='https://github.com/jianglab/HelicalProjection/issues' target='_blank'>HelicalProjection@GitHub</a>.</p></i>"
 )
+
+session.bookmark.exclude.append("upload_images")
+session.bookmark.exclude.append("upload_map")
+session.bookmark.exclude.append("select_image")
+
+@session.bookmark.on_bookmarked
+async def _(url: str):
+    await session.bookmark.update_query_string(url)
+
+@reactive.effect
+@reactive.event(input.show_bookmark_url, ignore_init=True)
+async def toggle_bookmark_url():
+    if input.show_bookmark_url():
+        await session.bookmark()
+    else:
+        await session.send_custom_message("clear_url_params", {})
 
 @reactive.effect
 @reactive.event(input.input_mode_images, input.upload_images)

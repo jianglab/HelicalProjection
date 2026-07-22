@@ -1,5 +1,6 @@
 import pathlib
 import helicon
+from helicon import align_images
 import numpy as np
 
 def extract_emdb_id(url):
@@ -176,7 +177,7 @@ def symmetrize_project_align_one_map(map_info, image_query, image_query_label, i
     )
     proj = data_sym.sum(axis=2).T
         
-    flip, scale, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving = helicon.align_images(image_moving=image_query, image_ref=proj, scale_range=scale_range, angle_range=angle_range, check_polarity=True, check_flip=True, return_aligned_moving_image=True) 
+    flip, scale, rotation_angle, shift_cartesian, similarity_score, aligned_image_moving = align_images(image_moving=image_query, image_ref=proj, scale_range=scale_range, angle_range=angle_range, check_polarity=True, check_flip=True, return_aligned_moving_image=True) 
 
     if match_sf:
         mask = aligned_image_moving > 0
